@@ -65,6 +65,9 @@ export default async function ClientDetailPage({
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: '1.6rem', margin: 0 }}>{client.name}</h1>
         <StatusBadge status={client.status} />
+        <Link href={`/clients/${client.id}/retention`} style={linkStyle}>
+          Retention →
+        </Link>
       </div>
 
       <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.6rem', opacity: 0.75, flexWrap: 'wrap' }}>
