@@ -20,6 +20,31 @@ our DB is canonical — never write back to their platforms).
 
 ---
 
+## Build status
+
+Built and **verified against synthetic commerce data on local Postgres** (no external creds — see
+[docs/LOCAL_DEV.md](../docs/LOCAL_DEV.md)):
+- ✅ **3.1 Client data schema** — `migrations/0004_client_data.sql`: all 9 tables +
+  `lifecycle_stage_customer` enum + indexes + RLS.
+- ✅ **3.4 Retention analytics** — `recomputeAnalytics()` computes RFM (fixed v1 thresholds),
+  lifecycle stage, churn_risk, predicted_ltv, and cohorts in a transaction. `scripts/seed-commerce.ts`
+  (synthetic customers/orders across behavior classes) + `scripts/compute-analytics.ts`.
+- ✅ **3.5 Analytics UI** — `/clients/[id]/retention`: overview, lifecycle-distribution bars,
+  at-risk & VIP segments, cohort grid, top products.
+- ✅ **3.6 `mcp-analytics`** — 5 read tools + `retention://{clientId}` resource; verified over the
+  MCP protocol.
+
+Deferred — **needs per-client Shopify/Klaviyo credentials**:
+- ⏳ **3.2 Connectors** (`packages/integrations` Shopify + Klaviyo adapters) and **3.3 incremental
+  sync**. The tables, analytics, UI, and MCP surface are all done and run on mock data now; the
+  connectors only need to populate the same raw tables (`client_customers`, `client_orders`, …) and
+  the analytics/UI/MCP light up on real data unchanged.
+
+> v1 analytics are documented heuristics (thresholds in `packages/db/src/clientData.ts`), tunable
+> once real data volume exists.
+
+---
+
 ## Tasks
 
 ### 3.1 — Client data schema
