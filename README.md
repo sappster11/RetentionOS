@@ -61,11 +61,15 @@ Phase 7  Website          public marketing site
 ## Status
 
 - [x] Plan written
-- [~] Phase 0 — Foundations *(scaffolded + verified locally; live wiring needs credentials — see [phase-00](phases/phase-00-foundations.md#build-status-as-scaffolded))*
-- [~] Phase 1 — Client CRM *(schema + data layer + CRUD UI + full mcp-crm built & verified on local Postgres; RAG chat/semantic search + Airtable import deferred — see [phase-01](phases/phase-01-crm-foundation.md#build-status))*
-- [~] Phase 2 — Agentic Project Management *(schema + data layer + mcp-pm + task-board/overdue UI built & verified; in-app propose/roll-up generation deferred — needs an LLM key)*
-- [~] Phase 3 — Client Data & Retention Analytics *(schema + RFM/lifecycle/cohort engine + mcp-analytics + retention UI built & verified on synthetic commerce data; live Shopify/Klaviyo fetch deferred — needs per-client creds)*
-- [~] Phase 4 — Content Engine *(schema + content lib + mcp-content + campaign UI built & verified on mock data; live LLM generation via a template fallback until a key is added)*
-- [~] Phase 5 — Reporting Dashboards *(real health scores + portfolio metrics + agency dashboard + mcp-reporting built & verified; Metabase deferred as a separate service)*
-- [~] Phase 6 — Data Backbone / Chat-with-everything *(foundation built: conversations schema + keyless unified cross-subsystem search + Obsidian ingestion; chat MCP + UI next; embeddings/LLM answer layer pending a key)*
-- [x] Phase 7 — Website *(standalone marketing site in apps/site — built & verified)*
+All 8 phases are built to the extent possible without external credentials, verified against a
+local Postgres with **no API keys** — see **[docs/BUILD_STATUS.md](docs/BUILD_STATUS.md)** for exactly
+what runs now vs. what activates when you add a key/service.
+
+- [x] Phase 0 — Foundations *(+ env-gated Supabase auth; live login needs a Supabase project)*
+- [x] Phase 1 — Client CRM *(RAG chat needs an embeddings key; Airtable import path built in Phase 3)*
+- [x] Phase 2 — Agentic Project Management *(in-app generation needs an LLM key; agents drive mcp-pm today)*
+- [x] Phase 3 — Client Data & Retention Analytics *(Shopify/Klaviyo/Airtable connectors fixture-verified; live sync needs per-client creds)*
+- [x] Phase 4 — Content Engine *(drafting via template fallback; real generation/delivery need keys)*
+- [x] Phase 5 — Reporting Dashboards *(Metabase deferred as a separate service)*
+- [x] Phase 6 — Data Backbone / Chat-with-everything *(keyless unified search + chat; semantic RAG needs embeddings)*
+- [x] Phase 7 — Website *(standalone marketing site in apps/site)*
