@@ -95,9 +95,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.12.0
         version: 1.29.0(zod@3.25.76)
-      '@supabase/supabase-js':
-        specifier: ^2.47.0
-        version: 2.110.0
+      '@retentionos/db':
+        specifier: workspace:*
+        version: link:../db
       zod:
         specifier: ^3.24.1
         version: 3.25.76

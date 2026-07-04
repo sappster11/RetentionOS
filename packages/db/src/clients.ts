@@ -34,6 +34,23 @@ export async function listClients(
   return query<Client>(sql, params)
 }
 
+/** Tenant-scoped free-text search over name/industry. Excludes archived clients. */
+export async function searchClients(
+  orgId: string,
+  queryText: string,
+  limit = 20,
+): Promise<Client[]> {
+  return query<Client>(
+    `select ${CLIENT_COLUMNS} from public.clients
+     where organization_id = $1
+       and archived_at is null
+       and (name ilike $2 or industry ilike $2)
+     order by name asc
+     limit $3`,
+    [orgId, `%${queryText}%`, limit],
+  )
+}
+
 export async function getClient(orgId: string, id: string): Promise<Client | null> {
   return queryOne<Client>(
     `select ${CLIENT_COLUMNS} from public.clients where organization_id = $1 and id = $2`,
