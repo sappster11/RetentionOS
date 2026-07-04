@@ -1,8 +1,10 @@
 import Link from 'next/link'
 import { listClients, type ClientStatus } from '@retentionos/db'
 import { getCurrentOrg } from '@/lib/org'
+import { authEnabled, getSessionUser } from '@/lib/auth'
 import { Card, StatusBadge, Field, inputStyle, buttonStyle, linkStyle } from '../_components/ui'
 import { createClientAction } from './actions'
+import { signOutAction } from '../auth/actions'
 
 const STATUS_OPTIONS: ClientStatus[] = [
   'prospect',
@@ -20,6 +22,7 @@ export default async function ClientsPage({
 }) {
   const { status } = await searchParams
   const org = await getCurrentOrg()
+  const sessionUser = authEnabled ? await getSessionUser() : null
   const filterStatus =
     status && (STATUS_OPTIONS as string[]).includes(status) ? (status as ClientStatus) : undefined
   const clients = await listClients(org.id, { status: filterStatus })
@@ -28,7 +31,7 @@ export default async function ClientsPage({
     <main style={{ maxWidth: 960, margin: '0 auto', padding: '3rem 1.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
         <h1 style={{ fontSize: '1.6rem', marginBottom: '0.25rem' }}>Clients</h1>
-        <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <Link href="/dashboard" style={linkStyle}>
             Dashboard →
           </Link>
@@ -41,6 +44,14 @@ export default async function ClientsPage({
           <Link href="/campaigns" style={linkStyle}>
             Campaigns →
           </Link>
+          {sessionUser ? (
+            <form action={signOutAction} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ opacity: 0.5, fontSize: '0.8rem' }}>{sessionUser.email}</span>
+              <button type="submit" style={{ ...linkStyle, background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem' }}>
+                Sign out
+              </button>
+            </form>
+          ) : null}
         </div>
       </div>
       <p style={{ opacity: 0.6, marginTop: 0 }}>{org.name}</p>
