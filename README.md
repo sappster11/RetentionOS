@@ -62,7 +62,7 @@ Phase 7  Website          public marketing site
 
 - [x] Plan written
 - [~] Phase 0 — Foundations *(scaffolded + verified locally; live wiring needs credentials — see [phase-00](phases/phase-00-foundations.md#build-status-as-scaffolded))*
-- [ ] Phase 1 — Client CRM
+- [~] Phase 1 — Client CRM *(schema + data layer + CRUD UI + full mcp-crm built & verified on local Postgres; RAG chat/semantic search + Airtable import deferred — see [phase-01](phases/phase-01-crm-foundation.md#build-status))*
 - [ ] Phase 2 — Agentic Project Management
 - [ ] Phase 3 — Client Data & Retention Analytics (Shopify + Klaviyo)
 - [ ] Phase 4 — Content Engine

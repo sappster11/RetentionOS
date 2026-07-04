@@ -15,6 +15,32 @@ skeleton).
 
 ---
 
+## Build status
+
+Built and **verified against a live local Postgres** (no API keys — see
+[docs/LOCAL_DEV.md](../docs/LOCAL_DEV.md)):
+- ✅ **1.1 CRM schema** — `migrations/0003_crm.sql`: all six tables + enums + `updated_at` triggers
+  + RLS. Applies cleanly.
+- ✅ **1.2 Client CRUD (server + UI)** — `/clients` list (status filter, table, new-client form) and
+  `/clients/[id]` detail; tenant-safe server actions; every change logs an activity.
+- ✅ **1.3 Channels** — link/list external containers on the client page.
+- ✅ **1.5 `mcp-crm` full server** — 8 tenant-safe tools on the shared `@retentionos/db` layer;
+  every mutation logs an `actor_type='agent'` activity. Verified over the MCP protocol.
+- 🟡 **1.4 Documents** — upload/note UI + storage done; **embedding ingestion deferred** (needs the
+  AI layer / an embeddings provider).
+
+Deferred — **needs AI provider keys** (do when keys are available):
+- ⏳ **1.4 ingestion → embeddings**, **1.6 chat-with-your-client (RAG)**, and semantic `search_clients`
+  (currently name/industry ILIKE; upgrade to vector search later).
+- ⏳ **1.7 Airtable importer** — one-time migration from the current Airtable base (no keys needed;
+  just not built yet — a good next no-key task).
+
+Note: local dev connects as a superuser, so RLS is defined but not exercised until Supabase Auth
+(Phase 0.3) is wired. Data access goes through `@retentionos/db` over `DATABASE_URL` — identical
+against local Postgres and Supabase.
+
+---
+
 ## Tasks
 
 ### 1.1 — CRM schema
