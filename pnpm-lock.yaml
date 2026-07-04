@@ -17,6 +17,9 @@ importers:
       '@retentionos/ai':
         specifier: workspace:*
         version: link:../../packages/ai
+      '@retentionos/content':
+        specifier: workspace:*
+        version: link:../../packages/content
       '@retentionos/db':
         specifier: workspace:*
         version: link:../../packages/db

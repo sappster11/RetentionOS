@@ -103,3 +103,5 @@ export default async function TasksPage() {
     </main>
   )
 }
+
+export const dynamic = "force-dynamic"

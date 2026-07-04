@@ -71,6 +71,9 @@ export default async function ClientDetailPage({
         <Link href={`/clients/${client.id}/tasks`} style={linkStyle}>
           Tasks →
         </Link>
+        <Link href={`/clients/${client.id}/campaigns`} style={linkStyle}>
+          Campaigns →
+        </Link>
       </div>
 
       <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.6rem', opacity: 0.75, flexWrap: 'wrap' }}>

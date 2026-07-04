@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@retentionos/ai": "workspace:*",
+    "@retentionos/content": "workspace:*",
     "@retentionos/db": "workspace:*",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.47.0",

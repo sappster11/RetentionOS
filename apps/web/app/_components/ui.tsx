@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react'
-import type { ClientStatus, TaskPriority, TaskStatus } from '@retentionos/db'
+import type { CampaignStatus, ClientStatus, TaskPriority, TaskStatus } from '@retentionos/db'
 
 export function Card({ title, children }: { title?: string; children: ReactNode }) {
   return (
@@ -84,6 +84,36 @@ export function PriorityBadge({ priority }: { priority: TaskPriority }) {
       }}
     >
       {priority}
+    </span>
+  )
+}
+
+const CAMPAIGN_STATUS_COLORS: Record<CampaignStatus, { bg: string; fg: string }> = {
+  draft: { bg: '#2a2a2a', fg: '#c0c0c0' },
+  in_review: { bg: '#2a2a3a', fg: '#b8b8ff' },
+  approved: { bg: '#1c2a3a', fg: '#7fb0ff' },
+  scheduled: { bg: '#2a3320', fg: '#c8e6a0' },
+  sent: { bg: '#173a2a', fg: '#7fe0ab' },
+  archived: { bg: '#3a1717', fg: '#f08a8a' },
+}
+
+export function CampaignStatusBadge({ status }: { status: CampaignStatus }) {
+  const colors = CAMPAIGN_STATUS_COLORS[status]
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        background: colors.bg,
+        color: colors.fg,
+        borderRadius: 999,
+        padding: '0.15rem 0.65rem',
+        fontSize: '0.75rem',
+        fontWeight: 600,
+        textTransform: 'capitalize',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {status.replace('_', ' ')}
     </span>
   )
 }
