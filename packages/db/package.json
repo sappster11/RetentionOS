@@ -1,0 +1,14 @@
+{
+  "name": "@retentionos/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Owned data plane: Supabase/Postgres migrations + generated types.",
+  "scripts": {
+    "migrate": "node scripts/migrate.mjs",
+    "gen-types": "supabase gen types typescript --linked > src/types.gen.ts"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "retentionos",
+  "version": "0.0.0",
+  "private": true,
+  "description": "An owned, AI-native operating system for a retention agency.",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "pnpm -r --if-present lint",
+    "build": "pnpm -r --if-present build",
+    "test": "pnpm -r --if-present test",
+    "dev": "pnpm --filter @retentionos/web dev",
+    "mcp:crm": "pnpm --filter @retentionos/mcp-crm start"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}

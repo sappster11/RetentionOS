@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# env / secrets — NEVER commit real values
+.env
+.env.local
+.env.*.local
+
+# supabase local
+supabase/.branches/
+supabase/.temp/
+
+# logs / os
+*.log
+.DS_Store
