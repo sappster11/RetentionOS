@@ -1,0 +1,58 @@
+{
+  "clients": [
+    {
+      "name": "Solstice Skincare",
+      "industry": "Beauty",
+      "status": "active",
+      "tier": "premium",
+      "website": "https://solsticeskincare.test"
+    },
+    {
+      "name": "Pinecrest Outdoor",
+      "industry": "Outdoor & Recreation",
+      "status": "onboarding",
+      "tier": "standard",
+      "website": "https://pinecrestoutdoor.test"
+    }
+  ],
+  "contacts": [
+    {
+      "client_ref": "Solstice Skincare",
+      "full_name": "Priya Shah",
+      "email": "priya@solsticeskincare.test",
+      "title": "Marketing Director"
+    },
+    {
+      "client_ref": "Solstice Skincare",
+      "full_name": "Marcus Lee",
+      "email": "marcus@solsticeskincare.test",
+      "title": "Ecommerce Manager"
+    },
+    {
+      "client_ref": "Pinecrest Outdoor",
+      "full_name": "Jordan Blake",
+      "email": "jordan@pinecrestoutdoor.test",
+      "title": "Founder"
+    }
+  ],
+  "channels": [
+    {
+      "client_ref": "Solstice Skincare",
+      "kind": "slack",
+      "name": "#solstice-retention",
+      "url": "https://acme-retention.slack.com/archives/C123"
+    },
+    {
+      "client_ref": "Solstice Skincare",
+      "kind": "gdrive",
+      "name": "Solstice Shared Drive",
+      "url": "https://drive.google.com/drive/folders/abc"
+    },
+    {
+      "client_ref": "Pinecrest Outdoor",
+      "kind": "notion",
+      "name": "Pinecrest Workspace",
+      "url": "https://notion.so/pinecrest"
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "profiles": [
+    {
+      "id": "kp_501",
+      "email": "alice@northwind.test",
+      "phone_number": "+15550000001",
+      "first_name": "Alice",
+      "last_name": "Nguyen",
+      "subscriptions": { "email": true, "sms": false }
+    },
+    {
+      "id": "kp_502",
+      "email": "ben@northwind.test",
+      "phone_number": "+15550000002",
+      "first_name": "Ben",
+      "last_name": "Carter",
+      "subscriptions": { "email": true, "sms": true }
+    },
+    {
+      "id": "kp_503",
+      "email": "carla@northwind.test",
+      "phone_number": null,
+      "first_name": "Carla",
+      "last_name": "Diaz",
+      "subscriptions": { "email": false, "sms": false }
+    },
+    {
+      "id": "kp_504",
+      "email": "dev@northwind.test",
+      "phone_number": "+15550000004",
+      "first_name": "Dev",
+      "last_name": "Patel",
+      "subscriptions": { "email": true, "sms": false }
+    },
+    {
+      "id": "kp_505",
+      "email": "emma@northwind.test",
+      "phone_number": "+15550000005",
+      "first_name": "Emma",
+      "last_name": "Wu",
+      "subscriptions": { "email": true, "sms": true }
+    },
+    {
+      "id": "kp_506",
+      "email": "frank@northwind.test",
+      "phone_number": "+15550000006",
+      "first_name": "Frank",
+      "last_name": "Osei",
+      "subscriptions": { "email": true, "sms": false }
+    }
+  ],
+  "events": [
+    { "id": "ke_601", "metric": "Opened Email", "timestamp": "2025-06-01T10:00:00Z", "value": null, "profile_id": "kp_501" },
+    { "id": "ke_602", "metric": "Clicked Email", "timestamp": "2025-06-01T10:05:00Z", "value": null, "profile_id": "kp_501" },
+    { "id": "ke_603", "metric": "Placed Order", "timestamp": "2025-06-01T10:10:00Z", "value": "46.00", "profile_id": "kp_501" },
+    { "id": "ke_604", "metric": "Opened Email", "timestamp": "2025-06-02T09:00:00Z", "value": null, "profile_id": "kp_502" },
+    { "id": "ke_605", "metric": "Placed Order", "timestamp": "2025-05-01T11:00:00Z", "value": "56.00", "profile_id": "kp_502" },
+    { "id": "ke_606", "metric": "Subscribed to List", "timestamp": "2025-06-05T08:00:00Z", "value": null, "profile_id": "kp_505" },
+    { "id": "ke_607", "metric": "Opened Email", "timestamp": "2025-06-06T08:30:00Z", "value": null, "profile_id": "kp_505" },
+    { "id": "ke_608", "metric": "Clicked Email", "timestamp": "2025-06-10T14:00:00Z", "value": null, "profile_id": "kp_506" }
+  ],
+  "segments": [
+    { "id": "seg_701", "name": "VIP Coffee Lovers", "profile_ids": ["kp_501", "kp_502"] },
+    { "id": "seg_702", "name": "Newsletter Subscribers", "profile_ids": ["kp_501", "kp_505", "kp_506"] }
+  ]
+}

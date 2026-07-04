@@ -137,6 +137,25 @@ importers:
         specifier: ^5.9.2
         version: 5.9.3
 
+  packages/integrations:
+    dependencies:
+      '@retentionos/db':
+        specifier: workspace:*
+        version: link:../db
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.0
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.0
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+
   packages/mcp-analytics:
     dependencies:
       '@modelcontextprotocol/sdk':
