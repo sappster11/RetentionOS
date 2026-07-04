@@ -32,6 +32,9 @@ export default async function ClientsPage({
           <Link href="/dashboard" style={linkStyle}>
             Dashboard →
           </Link>
+          <Link href="/chat" style={linkStyle}>
+            Chat →
+          </Link>
           <Link href="/tasks" style={linkStyle}>
             Tasks →
           </Link>

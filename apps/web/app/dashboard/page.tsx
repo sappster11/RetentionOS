@@ -49,11 +49,14 @@ export default async function DashboardPage() {
 
   return (
     <main style={{ maxWidth: 1100, margin: '0 auto', padding: '3rem 1.5rem' }}>
-      <p style={{ marginTop: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
         <Link href="/clients" style={linkStyle}>
           ← All clients
         </Link>
-      </p>
+        <Link href="/chat" style={linkStyle}>
+          Chat →
+        </Link>
+      </div>
 
       <h1 style={{ fontSize: '1.6rem', margin: 0 }}>Portfolio</h1>
       <p style={{ opacity: 0.6, marginTop: '0.25rem' }}>{org.name}</p>
