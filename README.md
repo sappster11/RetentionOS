@@ -32,8 +32,17 @@ Read the docs **in order**. Each builds on the last.
 | 06 | [docs/06-website.md](docs/06-website.md) | The marketing site (deliberately last) |
 | 07 | [docs/07-working-agreement.md](docs/07-working-agreement.md) | **Rules for the AI/dev executing this plan. Read before writing code.** |
 
-Then execute phases from `/phases`, starting with
-[phases/phase-01-crm-foundation.md](phases/phase-01-crm-foundation.md).
+Then execute phases from `/phases`, in order:
+
+| Phase | Spec | Milestone |
+|-------|------|-----------|
+| 0 | [phase-00-foundations.md](phases/phase-00-foundations.md) | App + owned DB + provider-agnostic AI proven on 2 vendors |
+| 1 | [phase-01-crm-foundation.md](phases/phase-01-crm-foundation.md) | Client CRM replaces Airtable; chat-with-your-client works |
+| 2 | [phase-02-agentic-pm.md](phases/phase-02-agentic-pm.md) | An agent proposes & creates tasks; status rolls up |
+| 3 | [phase-03-content-engine.md](phases/phase-03-content-engine.md) | Data-backed email + SMS generated, reviewed, sent |
+| 4 | [phase-04-reporting.md](phases/phase-04-reporting.md) | Live retention dashboards + speakable metrics |
+| 5 | [phase-05-data-backbone.md](phases/phase-05-data-backbone.md) | One chat surface over everything, driving every subsystem |
+| 6 | [phase-06-website.md](phases/phase-06-website.md) | Public site that books calls |
 
 ## Build order at a glance
 
