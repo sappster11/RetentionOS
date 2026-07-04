@@ -64,33 +64,55 @@ tasks appear on the board with owners and dates — and a status roll-up writes 
 
 ---
 
-## Phase 3 — Content Engine (email + SMS at volume)
-**Goal:** produce large volumes of data-backed emails and SMS, grounded in client data + brand
-voice, delivered through rented providers.
+## Phase 3 — Client Data & Retention Analytics (Shopify + Klaviyo)
+**Goal:** ingest each client's Shopify + Klaviyo data into our owned Postgres and derive a retention
+analytics model (RFM, lifecycle, churn risk, cohorts). This is the **analytical engine** of the
+agency — it's what makes campaigns *data-backed* rather than guesswork, and it feeds Content (4) and
+Reporting (5).
 
-- Tables: `campaigns`, `campaign_variants`, `messages`, `templates`, `audiences`.
-- Delivery: **Resend** for the agency's own email; for client campaigns, push the generated copy into
-  **the client's own ESP** (Klaviyo, Customer.io, etc.) via a per-client edge connector. **Twilio**
-  for SMS. RetentionOS owns the *content and the data*, not the client's delivery platform.
-- `mcp-content`: `draft_campaign`, `draft_sms`, `personalize`, `queue_send`, `list_templates`.
-- Brand voice: each client's voice/guardrails stored as markdown context, injected via RAG so
-  generated copy sounds like *them*.
-- Human-in-the-loop review + approval before anything sends.
+- Tables: `client_customers`, `client_orders`, `client_order_items`, `client_products`,
+  `client_engagement_events`, `client_segments`, `client_segment_members`, plus derived
+  `client_customer_metrics` (RFM/lifecycle/churn) and `client_cohorts`.
+- Connectors (`packages/integrations`): **Shopify** + **Klaviyo**, per-client auth, inbound-only,
+  incremental & idempotent sync (P2 — our DB is canonical, we never write back).
+- Analytics jobs: RFM scoring, lifecycle staging, churn-risk heuristic, cohort retention.
+- UI: a "Retention" section on the client page; `mcp-analytics` so agents can *reason over* the data.
 
-**Milestone demo:** for a chosen client and audience, generate a personalized win-back email + SMS
-variant set grounded in their data, review, approve, and send through the real providers — with
-sends logged back to `messages`/`activities`.
+**Milestone demo:** a client's Shopify/Klaviyo data is synced and current; their page shows a real
+retention snapshot; an agent can answer "who should we win back this month and what should we say"
+grounded in that data.
+
+Full spec: [phases/phase-03-client-data-analytics.md](../phases/phase-03-client-data-analytics.md).
 
 ---
 
-## Phase 4 — Reporting Dashboards
+## Phase 4 — Content Engine (email + SMS at volume)
+**Goal:** produce large volumes of data-backed emails and SMS, grounded in the Phase 3 analytics +
+brand voice. Audiences are *queries* against RFM/lifecycle/segments, not guesses.
+
+- Tables: `campaigns`, `campaign_variants`, `messages`, `templates`, `audiences` (audiences reference
+  Phase 3 `client_segments` / `client_customer_metrics`).
+- Delivery: **Resend** for the agency's own email; for client campaigns, push the generated copy into
+  **the client's own ESP** (Klaviyo, Customer.io, etc.) via a per-client edge connector. **Twilio**
+  for SMS. RetentionOS owns the *content and the data*, not the client's delivery platform.
+- `mcp-content`: `draft_campaign`, `draft_sms`, `personalize`, `queue_send`, `list_templates`;
+  resolves audiences by calling `mcp-analytics`.
+- Brand voice: each client's voice/guardrails stored as markdown context, injected via RAG.
+- Human-in-the-loop review + approval before anything sends.
+
+**Milestone demo:** for a chosen client + a data-derived audience (e.g. at-risk high-value buyers),
+generate a personalized win-back email + SMS set grounded in their purchase data, review, approve,
+and send through the real providers — logged to `messages`/`activities`.
+
+---
+
+## Phase 5 — Reporting Dashboards
 **Goal:** great reporting over our **own** data, both for us and (later) for clients.
 
-- Tables/views: `metrics`, `metric_snapshots`, SQL views for common cuts. Health-score computation
-  moves from placeholder to real, reading these.
+- Tables/views: `metrics`, `metric_snapshots`, SQL views. Health-score computation moves from
+  placeholder to real, reading the Phase 3 analytics + these.
 - **Fast path:** Metabase pointed at Postgres → dashboards on day one.
-- **In-app path:** embedded client-facing dashboards (Recharts/Tremor) for the metrics that belong
-  inside RetentionOS.
+- **In-app path:** embedded client-facing dashboards (Recharts/Tremor).
 - `mcp-reporting`: `client_health`, `retention_metrics`, `run_report` so agents can *speak* the
   numbers, not just render them.
 
@@ -99,9 +121,9 @@ most at risk this month and why" and getting an answer backed by the same metric
 
 ---
 
-## Phase 5 — Data Backbone / Chat-with-everything  ← final boss
-**Goal:** one surface that chats across *all* of it — CRM, PM, content, reporting, Slack history,
-docs, and the Obsidian vault — and can *act* through every MCP server.
+## Phase 6 — Data Backbone / Chat-with-everything  ← final boss
+**Goal:** one surface that chats across *all* of it — CRM, PM, analytics, content, reporting, Slack
+history, docs, and the Obsidian vault — and can *act* through every MCP server.
 
 - Unified ingestion: Slack messages, calendar events, Google Drive/Notion docs, and the Obsidian
   markdown vault all flow into `documents`/`embeddings` (P2/P8 intact — DB canonical, markdown for
@@ -112,20 +134,21 @@ docs, and the Obsidian vault — and can *act* through every MCP server.
 - `conversations` history so the assistant has memory.
 
 **Milestone demo:** from one chat box, answer any question about any client using any source, and
-kick off real actions across CRM/PM/content — model provider swappable in config throughout.
+kick off real actions across every subsystem — model provider swappable in config throughout.
 
 ---
 
-## Phase 6 — Website
+## Phase 7 — Website
 **Goal:** the public face of the agency. Deliberately last; the machine matters more than the
-brochure, and by now we have real capabilities to show. See [06-website.md](06-website.md).
+brochure, and by now we have real capabilities to show. See [06-website.md](06-website.md) and
+[phases/phase-07-website.md](../phases/phase-07-website.md).
 
 ---
 
 ## Sequencing notes
 - **Phases 0→1 are non-negotiable prerequisites** for everything else.
-- Phases 2, 3, 4 can flex in order based on what wins clients fastest — but each still assumes the
-  CRM (Phase 1) exists.
-- Every phase adds its **MCP server** as it goes, so the "chat with everything" backbone in Phase 5
+- **Phase 3 (client data) must precede Phase 4 (content) and Phase 5 (reporting)** — they consume its
+  analytics. Phase 2 (PM) is flexible and can move earlier/later.
+- Every phase adds its **MCP server** as it goes, so the "chat with everything" backbone in Phase 6
   is mostly *unification*, not net-new capability.
-- Don't start Phase 5 until at least Phases 1–3 exist; there's nothing to unify otherwise.
+- Don't start Phase 6 until at least Phases 1–4 exist; there's nothing to unify otherwise.

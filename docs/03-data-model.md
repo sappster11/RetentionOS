@@ -133,15 +133,89 @@ integrations
   created_at, updated_at
 ```
 
+## Client commerce & engagement data (Phase 3 — Shopify + Klaviyo)
+
+This is the substrate for **data-backed campaigns** — the actual analytical work of a retention
+agency. We mirror each client's e-commerce (Shopify) and engagement (Klaviyo) data **inbound** into
+our owned Postgres (P2: DB canonical), then derive a retention analytics model on top. Content
+(Phase 4) and Reporting (Phase 5) both read from these.
+
+**Design notes:**
+- All of these carry `organization_id` **and** `client_id` (the data belongs to a specific client
+  account) and are RLS-scoped.
+- Store a stable `external_id` + `source` on every row so sync is idempotent and traceable.
+- Sync is **inbound-only and incremental** (cursor/updated-at based); we never write back to Shopify
+  or Klaviyo from these tables. Raw payloads kept in `metadata jsonb` so we can re-derive later.
+
+```
+client_customers        -- unified end-customer (a client's shopper/subscriber)
+  id, organization_id, client_id, source, external_id,
+  email, phone, first_name, last_name,
+  first_order_at, last_order_at, orders_count int, total_spent numeric,
+  klaviyo_profile_id, email_consent, sms_consent,
+  metadata jsonb, created_at, updated_at
+  unique(client_id, source, external_id)
+
+client_orders           -- Shopify orders
+  id, organization_id, client_id, customer_id → client_customers,
+  source, external_id, order_number, total numeric, currency,
+  financial_status, fulfillment_status, ordered_at,
+  metadata jsonb, created_at, updated_at
+
+client_order_items      -- line items (for product/category affinity)
+  id, organization_id, client_id, order_id → client_orders,
+  product_external_id, product_title, variant_title,
+  quantity int, price numeric, metadata jsonb
+
+client_products         -- Shopify catalog snapshot
+  id, organization_id, client_id, source, external_id,
+  title, product_type, vendor, price numeric, status,
+  metadata jsonb, created_at, updated_at
+
+client_engagement_events -- Klaviyo events (opened, clicked, placed order, etc.)
+  id, organization_id, client_id, customer_id → client_customers,
+  source, external_id, event_type, occurred_at,
+  campaign_ref, flow_ref, value numeric, metadata jsonb
+
+client_segments          -- Klaviyo/derived segments & lists
+  id, organization_id, client_id, source, external_id,
+  name, kind, member_count int, definition jsonb, last_synced_at
+
+client_segment_members   -- membership (for targeting)
+  id, organization_id, client_id, segment_id → client_segments,
+  customer_id → client_customers, added_at
+```
+
+### Derived retention analytics (computed, refreshed on a schedule)
+The decisions layer. Computed from the raw tables above; materialized so campaigns and dashboards
+read fast.
+```
+client_customer_metrics  -- per-customer RFM + lifecycle (one row per customer, recomputed)
+  id, organization_id, client_id, customer_id → client_customers,
+  recency_days int, frequency int, monetary numeric,
+  rfm_recency int, rfm_frequency int, rfm_monetary int,   -- 1..5 scores
+  aov numeric, predicted_ltv numeric,
+  lifecycle_stage,        -- new | active | at_risk | churned | won_back | vip
+  churn_risk numeric,     -- 0..1
+  next_order_estimate date, computed_at
+
+client_cohorts           -- cohort retention (by acquisition month, etc.)
+  id, organization_id, client_id, cohort_key, period_index int,
+  customers int, retained int, revenue numeric, computed_at
+```
+`lifecycle_stage` here powers "who to target" for winback/reengagement campaigns; `rfm_*` and
+`churn_risk` are the signals the content engine uses to pick audiences and angle.
+
 ## Tables added by later phases (forward map — do not build yet)
 
 - **Phase 2 (PM):** `projects`, `tasks`, `task_dependencies`, `task_comments`.
-- **Phase 3 (Content):** `campaigns`, `campaign_variants`, `messages` (individual email/SMS sends),
-  `templates`, `audiences`.
-- **Phase 4 (Reporting):** `metrics` (time-series facts), `metric_snapshots`, plus SQL views for
-  dashboards. Health-score computation reads from here.
-- **Phase 5 (Backbone):** no big new tables — mostly richer ingestion into `documents`/`embeddings`
-  and a `conversations`/`messages_ai` pair for the chat surface.
+- **Phase 3 (Client Data):** the commerce/engagement + analytics tables above.
+- **Phase 4 (Content):** `campaigns`, `campaign_variants`, `messages` (individual email/SMS sends),
+  `templates`, `audiences`. Audiences reference `client_segments` / `client_customer_metrics`.
+- **Phase 5 (Reporting):** `metrics` (time-series facts), `metric_snapshots`, plus SQL views for
+  dashboards. Health-score computation reads from the analytics tables + these.
+- **Phase 6 (Backbone):** no big new tables — mostly richer ingestion into `documents`/`embeddings`
+  and a `conversations`/`conversation_messages` pair for the chat surface.
 
 ## RLS in one sentence
 

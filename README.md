@@ -39,10 +39,11 @@ Then execute phases from `/phases`, in order:
 | 0 | [phase-00-foundations.md](phases/phase-00-foundations.md) | App + owned DB + provider-agnostic AI proven on 2 vendors |
 | 1 | [phase-01-crm-foundation.md](phases/phase-01-crm-foundation.md) | Client CRM replaces Airtable; chat-with-your-client works |
 | 2 | [phase-02-agentic-pm.md](phases/phase-02-agentic-pm.md) | An agent proposes & creates tasks; status rolls up |
-| 3 | [phase-03-content-engine.md](phases/phase-03-content-engine.md) | Data-backed email + SMS generated, reviewed, sent |
-| 4 | [phase-04-reporting.md](phases/phase-04-reporting.md) | Live retention dashboards + speakable metrics |
-| 5 | [phase-05-data-backbone.md](phases/phase-05-data-backbone.md) | One chat surface over everything, driving every subsystem |
-| 6 | [phase-06-website.md](phases/phase-06-website.md) | Public site that books calls |
+| 3 | [phase-03-client-data-analytics.md](phases/phase-03-client-data-analytics.md) | Shopify + Klaviyo synced; RFM/lifecycle/cohorts drive decisions |
+| 4 | [phase-04-content-engine.md](phases/phase-04-content-engine.md) | Data-backed email + SMS generated, reviewed, sent |
+| 5 | [phase-05-reporting.md](phases/phase-05-reporting.md) | Live retention dashboards + speakable metrics |
+| 6 | [phase-06-data-backbone.md](phases/phase-06-data-backbone.md) | One chat surface over everything, driving every subsystem |
+| 7 | [phase-07-website.md](phases/phase-07-website.md) | Public site that books calls |
 
 ## Build order at a glance
 
@@ -50,19 +51,21 @@ Then execute phases from `/phases`, in order:
 Phase 0  Foundations      repo, DB, auth, multi-tenant, provider-agnostic LLM, first MCP skeleton
 Phase 1  Client CRM       ← THE WEDGE. Everything builds off this. Replaces Airtable.
 Phase 2  Agentic PM       projects + tasks an agent can drive
-Phase 3  Content Engine   data-backed email + SMS at volume
-Phase 4  Reporting        dashboards over our own data
-Phase 5  Data Backbone    "chat with everything" — the final boss
-Phase 6  Website          public marketing site
+Phase 3  Client Data      Shopify + Klaviyo ingestion + retention analytics (RFM/lifecycle/cohorts)
+Phase 4  Content Engine   data-backed email + SMS at volume (audiences = queries against Phase 3)
+Phase 5  Reporting        dashboards over our own data
+Phase 6  Data Backbone    "chat with everything" — the final boss
+Phase 7  Website          public marketing site
 ```
 
 ## Status
 
 - [x] Plan written
-- [ ] Phase 0 — Foundations
+- [ ] Phase 0 — Foundations *(scaffold in progress)*
 - [ ] Phase 1 — Client CRM
 - [ ] Phase 2 — Agentic Project Management
-- [ ] Phase 3 — Content Engine
-- [ ] Phase 4 — Reporting Dashboards
-- [ ] Phase 5 — Data Backbone / Chat-with-everything
-- [ ] Phase 6 — Website
+- [ ] Phase 3 — Client Data & Retention Analytics (Shopify + Klaviyo)
+- [ ] Phase 4 — Content Engine
+- [ ] Phase 5 — Reporting Dashboards
+- [ ] Phase 6 — Data Backbone / Chat-with-everything
+- [ ] Phase 7 — Website

@@ -100,6 +100,7 @@ Each subsystem package ships a server. They compose — an agent can hold all of
 |--------|---------------|-------------------|
 | `mcp-crm` | `list_clients`, `get_client`, `search_clients`, `create_client`, `update_client`, `add_note`, `link_channel`, `list_contacts` | `client://{id}`, `contact://{id}` |
 | `mcp-pm` | `list_tasks`, `create_task`, `update_task`, `assign_task`, `list_overdue` | `project://{id}`, `task://{id}` |
+| `mcp-analytics` | `client_retention_overview`, `list_segment`, `customer_metrics`, `cohort_retention`, `product_performance` | `retention://{clientId}` |
 | `mcp-content` | `draft_campaign`, `draft_sms`, `list_templates`, `personalize`, `queue_send` | `campaign://{id}`, `template://{id}` |
 | `mcp-reporting` | `client_health`, `retention_metrics`, `run_report` | `report://{name}` |
 

@@ -7,8 +7,9 @@ come from blurring them.
 ┌──────────────────────────────────────────────────────────────────────────┐
 │  INTELLIGENCE PLANE  (owned)                                               │
 │                                                                            │
-│   Provider-agnostic LLM layer          MCP servers (one per subsystem)     │
-│   generate() · embed() · stream()      crm · pm · content · reporting      │
+│   Provider-agnostic LLM layer       MCP servers (one per subsystem)        │
+│   generate() · embed() · stream()   crm · pm · analytics · content ·       │
+│                                     reporting                              │
 │            │                                    │                          │
 │            │  reads/writes via the same tools any external agent uses      │
 │            ▼                                    ▼                          │
@@ -21,8 +22,8 @@ come from blurring them.
 ├──────────────────────────────────────────────────────────────────────────┤
 │  INTEGRATION PLANE  (rented — mirrored inbound, never authoritative)       │
 │                                                                            │
-│   Slack · Google Calendar · Email/ESP · Twilio SMS · (later) Shopify /     │
-│   Klaviyo / ad platforms · Obsidian vault (markdown context)               │
+│   Shopify · Klaviyo (client data) · Slack · Google Calendar · Resend ·     │
+│   Twilio SMS · Obsidian vault (markdown context) · (later) ad platforms    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 

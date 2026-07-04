@@ -74,8 +74,8 @@ For a real client:
 3. A status roll-up writes itself, grounded in real task data — and everything the agent did is
    visible in the client timeline, attributed to the agent.
 
-When all three work, Phase 2 is done. Next: write `phases/phase-03-content-engine.md` (already
-drafted) and proceed.
+When all three work, Phase 2 is done. Next: [phases/phase-03-client-data-analytics.md](phase-03-client-data-analytics.md)
+— ingest Shopify/Klaviyo so the content engine has real data to write from.
 
 ## Notes / decisions log
 > Record status/priority enum tweaks, approval-UX choices, and any deviations here.
