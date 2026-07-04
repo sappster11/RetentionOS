@@ -1,0 +1,24 @@
+{
+  "name": "@retentionos/mcp-pm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PM MCP server — exposes project/task data as tools/resources to any agent.",
+  "bin": {
+    "retentionos-mcp-pm": "src/index.ts"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@retentionos/db": "workspace:*",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.2"
+  }
+}
