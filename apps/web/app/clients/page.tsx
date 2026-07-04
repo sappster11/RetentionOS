@@ -29,6 +29,9 @@ export default async function ClientsPage({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
         <h1 style={{ fontSize: '1.6rem', marginBottom: '0.25rem' }}>Clients</h1>
         <div style={{ display: 'flex', gap: '1rem' }}>
+          <Link href="/dashboard" style={linkStyle}>
+            Dashboard →
+          </Link>
           <Link href="/tasks" style={linkStyle}>
             Tasks →
           </Link>

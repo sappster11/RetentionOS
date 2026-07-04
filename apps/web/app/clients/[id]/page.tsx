@@ -10,7 +10,16 @@ import {
   type ChannelKind,
 } from '@retentionos/db'
 import { getCurrentOrg } from '@/lib/org'
-import { Card, StatusBadge, Field, inputStyle, buttonStyle, linkStyle, formatDate } from '../../_components/ui'
+import {
+  Card,
+  StatusBadge,
+  HealthPill,
+  Field,
+  inputStyle,
+  buttonStyle,
+  linkStyle,
+  formatDate,
+} from '../../_components/ui'
 import {
   updateClientStatusAction,
   addContactAction,
@@ -79,7 +88,9 @@ export default async function ClientDetailPage({
       <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.6rem', opacity: 0.75, flexWrap: 'wrap' }}>
         <span style={{ textTransform: 'capitalize' }}>Tier: {client.tier}</span>
         <span style={{ textTransform: 'capitalize' }}>Lifecycle: {client.lifecycle_stage}</span>
-        <span>Health: {client.health_score ?? '—'}</span>
+        <span>
+          Health: <HealthPill score={client.health_score} />
+        </span>
         <span>Industry: {client.industry ?? '—'}</span>
         {client.website ? (
           <a href={client.website} target="_blank" rel="noreferrer" style={linkStyle}>

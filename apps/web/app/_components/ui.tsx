@@ -118,6 +118,36 @@ export function CampaignStatusBadge({ status }: { status: CampaignStatus }) {
   )
 }
 
+/** Red/amber/green thresholds for a 0-100 health score, shared by the dashboard and the
+ *  client detail header so "unhealthy" reads the same color everywhere. */
+export function healthColor(score: number | null): string {
+  if (score === null) return '#8a919c'
+  if (score < 40) return '#f08a8a'
+  if (score < 60) return '#f0b16a'
+  return '#7fe0ab'
+}
+
+/** Small colored dot + number for a health score, null-safe (renders '—' when unscored). */
+export function HealthPill({ score }: { score: number | null }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+      <span
+        style={{
+          display: 'inline-block',
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          background: healthColor(score),
+          flexShrink: 0,
+        }}
+      />
+      <span style={{ color: healthColor(score), fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+        {score ?? '—'}
+      </span>
+    </span>
+  )
+}
+
 export function Field({
   label,
   children,
