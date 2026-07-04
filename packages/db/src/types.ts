@@ -326,3 +326,109 @@ export interface TaskComment {
   body: string
   created_at: string
 }
+
+// ---------------------------------------------------------------------------
+// Content engine (Phase 4). These mirror the columns in migration 0006_content.sql.
+// ---------------------------------------------------------------------------
+
+export type CampaignChannel = 'email' | 'sms'
+export type CampaignGoal =
+  | 'winback'
+  | 'onboarding'
+  | 'retention'
+  | 'reengagement'
+  | 'announcement'
+export type CampaignStatus =
+  | 'draft'
+  | 'in_review'
+  | 'approved'
+  | 'scheduled'
+  | 'sent'
+  | 'archived'
+export type MessageProvider = 'resend' | 'twilio' | 'client_esp'
+export type MessageStatus = 'queued' | 'sent' | 'delivered' | 'failed' | 'bounced'
+
+export interface Audience {
+  id: string
+  organization_id: string
+  client_id: string
+  name: string
+  definition: Record<string, unknown>
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Template {
+  id: string
+  organization_id: string
+  client_id: string | null
+  channel: CampaignChannel
+  name: string
+  subject: string | null
+  body: string | null
+  variables: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface Campaign {
+  id: string
+  organization_id: string
+  client_id: string
+  name: string
+  channel: CampaignChannel
+  goal: CampaignGoal
+  status: CampaignStatus
+  audience_id: string | null
+  created_by_type: ActorType
+  created_by_id: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface CampaignVariant {
+  id: string
+  organization_id: string
+  campaign_id: string
+  label: string
+  subject: string | null
+  body: string | null
+  personalization_spec: Record<string, unknown>
+  model_used: string | null
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Message {
+  id: string
+  organization_id: string
+  campaign_id: string | null
+  client_id: string
+  customer_id: string | null
+  channel: CampaignChannel
+  to_address: string | null
+  rendered_subject: string | null
+  rendered_body: string | null
+  provider: MessageProvider | null
+  provider_ref: string | null
+  status: MessageStatus
+  sent_at: string | null
+  created_at: string
+}
+
+/** Result row for resolveAudience — a customer matched by an audience's saved query,
+ *  joined from client_customers + client_customer_metrics (0004_client_data.sql). */
+export interface ResolvedAudienceMember {
+  customer_id: string
+  first_name: string | null
+  last_name: string | null
+  email: string | null
+  recency_days: number | null
+  frequency: number
+  monetary: string
+  churn_risk: string
+  lifecycle_stage: LifecycleStageCustomer
+}
