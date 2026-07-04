@@ -13,6 +13,24 @@ client" into "what we're doing about it." It's the first subsystem where agents 
 
 ---
 
+## Build status
+
+Built and **verified on local Postgres** (no keys — see [docs/LOCAL_DEV.md](../docs/LOCAL_DEV.md)):
+- ✅ **2.1 PM schema** — `migrations/0005_pm.sql`: projects, tasks, task_dependencies, task_comments +
+  `project_status`/`task_status`/`task_priority` enums, indexes, RLS. Data layer in
+  `@retentionos/db` (`projects.ts`, `tasks.ts`) + `scripts/seed-pm.ts`.
+- ✅ **2.2 PM UI** — `/clients/[id]/tasks` (Kanban board + quick actions + new-task form) and `/tasks`
+  (cross-client overdue + open), with tenant-safe server actions that log activities.
+- ✅ **2.3 `mcp-pm`** — 11 tenant-safe tools + `task://{id}`/`project://{id}` resources; every mutation
+  logs an `actor_type='agent'` activity. Verified over the MCP protocol.
+
+Deferred — **needs an LLM key** (the generation half of "agentic"):
+- ⏳ **2.4 Propose-the-week's-tasks** and **2.5 status roll-up** — these need `packages/ai` generation.
+  The mechanism is ready: an external agent (Claude Desktop) can already drive PM through `mcp-pm`
+  today; the *in-app* auto-propose/roll-up flows light up once a provider key is configured.
+
+---
+
 ## Tasks
 
 ### 2.1 — PM schema
