@@ -1,0 +1,25 @@
+{
+  "name": "@retentionos/mcp-content",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Content MCP server — draft, review, approve, and queue retention campaigns as tools/resources to any agent.",
+  "bin": {
+    "retentionos-mcp-content": "src/index.ts"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@retentionos/content": "workspace:*",
+    "@retentionos/db": "workspace:*",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.2"
+  }
+}

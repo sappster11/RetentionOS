@@ -1,0 +1,24 @@
+{
+  "name": "@retentionos/content",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Content-generation library: draft retention campaigns grounded in resolved audiences, with a keyless deterministic fallback.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@retentionos/ai": "workspace:*",
+    "@retentionos/db": "workspace:*",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.2"
+  }
+}
