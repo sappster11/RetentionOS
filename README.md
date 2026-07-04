@@ -65,7 +65,7 @@ Phase 7  Website          public marketing site
 - [~] Phase 1 — Client CRM *(schema + data layer + CRUD UI + full mcp-crm built & verified on local Postgres; RAG chat/semantic search + Airtable import deferred — see [phase-01](phases/phase-01-crm-foundation.md#build-status))*
 - [~] Phase 2 — Agentic Project Management *(schema + data layer + mcp-pm + task-board/overdue UI built & verified; in-app propose/roll-up generation deferred — needs an LLM key)*
 - [~] Phase 3 — Client Data & Retention Analytics *(schema + RFM/lifecycle/cohort engine + mcp-analytics + retention UI built & verified on synthetic commerce data; live Shopify/Klaviyo fetch deferred — needs per-client creds)*
-- [ ] Phase 4 — Content Engine
-- [ ] Phase 5 — Reporting Dashboards
-- [ ] Phase 6 — Data Backbone / Chat-with-everything
-- [ ] Phase 7 — Website
+- [~] Phase 4 — Content Engine *(schema + content lib + mcp-content + campaign UI built & verified on mock data; live LLM generation via a template fallback until a key is added)*
+- [~] Phase 5 — Reporting Dashboards *(real health scores + portfolio metrics + agency dashboard + mcp-reporting built & verified; Metabase deferred as a separate service)*
+- [~] Phase 6 — Data Backbone / Chat-with-everything *(foundation built: conversations schema + keyless unified cross-subsystem search + Obsidian ingestion; chat MCP + UI next; embeddings/LLM answer layer pending a key)*
+- [x] Phase 7 — Website *(standalone marketing site in apps/site — built & verified)*

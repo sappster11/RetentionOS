@@ -465,3 +465,50 @@ export interface ClientHealth {
   health_score: number | null
   drivers: HealthDrivers | null
 }
+
+// ---------------------------------------------------------------------------
+// Data backbone / "chat with everything" (Phase 6). Mirrors the columns in migration
+// 0008_backbone.sql. See packages/db/src/conversations.ts and packages/db/src/search.ts.
+// ---------------------------------------------------------------------------
+
+export type ConversationMessageRole = 'user' | 'assistant' | 'system'
+
+export interface Conversation {
+  id: string
+  organization_id: string
+  user_id: string | null
+  title: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ConversationMessage {
+  id: string
+  organization_id: string
+  conversation_id: string
+  role: ConversationMessageRole
+  content: string
+  citations: unknown[]
+  created_at: string
+}
+
+/** The unit type returned/ranked by search.ts#searchEverything — one hit per matched
+ *  row, regardless of which table it came from. `client_id` is null for agency-wide
+ *  hits (e.g. an obsidian document with no client). */
+export type SearchHitType =
+  | 'client'
+  | 'contact'
+  | 'document'
+  | 'task'
+  | 'campaign'
+  | 'customer'
+  | 'activity'
+
+export interface SearchHit {
+  type: SearchHitType
+  id: string
+  client_id: string | null
+  title: string
+  snippet: string | null
+  url: string
+}
