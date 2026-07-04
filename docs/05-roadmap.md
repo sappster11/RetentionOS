@@ -69,8 +69,9 @@ tasks appear on the board with owners and dates — and a status roll-up writes 
 voice, delivered through rented providers.
 
 - Tables: `campaigns`, `campaign_variants`, `messages`, `templates`, `audiences`.
-- Integrations: **Resend** (transactional), a marketing **ESP** (Customer.io/Klaviyo) for campaign
-  send + deliverability + unsubscribe, **Twilio** for SMS.
+- Delivery: **Resend** for the agency's own email; for client campaigns, push the generated copy into
+  **the client's own ESP** (Klaviyo, Customer.io, etc.) via a per-client edge connector. **Twilio**
+  for SMS. RetentionOS owns the *content and the data*, not the client's delivery platform.
 - `mcp-content`: `draft_campaign`, `draft_sms`, `personalize`, `queue_send`, `list_templates`.
 - Brand voice: each client's voice/guardrails stored as markdown context, injected via RAG so
   generated copy sounds like *them*.

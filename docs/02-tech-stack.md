@@ -17,7 +17,8 @@ training data and docs, minimal ops. Every choice traces back to a principle in
 | LLM generation | **Vercel AI SDK** | Provider-agnostic by design — one API, swap Claude/OpenAI/others via config. Streaming, tool-calling, structured output built in. |
 | Agent tooling | **Model Context Protocol (MCP)** | Open standard for exposing tools/resources to any agent. The core of our "any model" flexibility. |
 | Background jobs | **Supabase scheduled functions** first; **Inngest** or **Trigger.dev** when workflows get complex | Start with cron-style; graduate to a durable workflow engine only when sync/retries demand it. |
-| Email delivery | **Resend** (transactional) + a marketing ESP (**Customer.io** or **Klaviyo**) for campaigns | Rent delivery (P1). Resend is developer-friendly for transactional; a real ESP handles list mgmt, deliverability, unsubscribe for volume retention campaigns. |
+| Agency email | **Resend** | RetentionOS's *own* email (notifications, agency comms). Developer-friendly, rent delivery (P1). |
+| Client ESPs | **Per-client integration** (Klaviyo, Customer.io, etc.) | These are the *client's* platform, not our core stack. The content engine produces the copy; delivery happens in whatever the client already uses. Add each as an edge connector when a client needs it — no core decision required now. |
 | SMS | **Twilio** | Industry standard, best docs, easiest for AI agents to integrate. |
 | Dashboards (fast) | **Metabase** (self-host, pointed at our Postgres) | Great dashboards over our own data on day one, no custom charting code. |
 | Dashboards (in-app) | **Recharts / Tremor** inside Next.js | For client-facing, embedded reporting once we outgrow Metabase. |
@@ -57,8 +58,8 @@ RetentionOS/
 - [ ] Vercel project (app hosting)
 - [ ] Anthropic API key (Claude) — primary generation
 - [ ] OpenAI API key — secondary/embeddings/fallback (proves provider-agnosticism early)
-- [ ] Resend account (transactional email)
-- [ ] Marketing ESP account (Customer.io or Klaviyo) — Phase 3
+- [ ] Resend account (agency's own email)
+- [ ] Client ESP access — added per client as an edge connector, not a core account. Decide when a client needs it.
 - [ ] Twilio account (SMS) — Phase 3
 - [ ] Google Cloud project (Calendar API OAuth) — CRM/integration phase
 - [ ] Slack app (OAuth + events) — CRM/integration phase
