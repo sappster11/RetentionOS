@@ -13,6 +13,7 @@
     "migrate": "node scripts/migrate.mjs",
     "seed": "tsx scripts/seed.ts",
     "seed:commerce": "tsx scripts/seed-commerce.ts",
+    "seed:pm": "tsx scripts/seed-pm.ts",
     "analytics": "tsx scripts/compute-analytics.ts",
     "typecheck": "tsc --noEmit",
     "gen-types": "supabase gen types typescript --linked > src/types.gen.ts"

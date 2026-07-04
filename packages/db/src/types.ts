@@ -266,3 +266,63 @@ export interface ClientCohort {
   computed_at: string
   created_at: string
 }
+
+// ---------------------------------------------------------------------------
+// Agentic project management (Phase 2). These mirror the columns in migration
+// 0005_pm.sql.
+// ---------------------------------------------------------------------------
+
+export type ProjectStatus = 'planned' | 'active' | 'on_hold' | 'done' | 'cancelled'
+export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'review' | 'done'
+export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
+
+export interface Project {
+  id: string
+  organization_id: string
+  client_id: string | null
+  name: string
+  status: ProjectStatus
+  owner_id: string | null
+  starts_on: string | null
+  due_on: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface Task {
+  id: string
+  organization_id: string
+  project_id: string | null
+  client_id: string | null
+  title: string
+  details: string | null
+  status: TaskStatus
+  priority: TaskPriority
+  assignee_id: string | null
+  due_on: string | null
+  completed_at: string | null
+  created_by_type: ActorType
+  created_by_id: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface TaskDependency {
+  id: string
+  organization_id: string
+  task_id: string
+  depends_on_task_id: string
+  created_at: string
+}
+
+export interface TaskComment {
+  id: string
+  organization_id: string
+  task_id: string
+  author_type: ActorType
+  author_id: string | null
+  body: string
+  created_at: string
+}
