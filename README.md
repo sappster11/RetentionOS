@@ -61,7 +61,7 @@ Phase 7  Website          public marketing site
 ## Status
 
 - [x] Plan written
-- [ ] Phase 0 — Foundations *(scaffold in progress)*
+- [~] Phase 0 — Foundations *(scaffolded + verified locally; live wiring needs credentials — see [phase-00](phases/phase-00-foundations.md#build-status-as-scaffolded))*
 - [ ] Phase 1 — Client CRM
 - [ ] Phase 2 — Agentic Project Management
 - [ ] Phase 3 — Client Data & Retention Analytics (Shopify + Klaviyo)

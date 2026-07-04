@@ -12,6 +12,29 @@ task below has explicit acceptance criteria; don't tick a box until you've *run*
 
 ---
 
+## Build status (as scaffolded)
+
+Scaffolded and **verified locally** (no credentials required):
+- ✅ Monorepo: pnpm workspace, strict TS base, `.env.example`, `.gitignore`. `pnpm install` clean.
+- ✅ `packages/db`: migrations `0001_foundations` + `0002_pgvector_embeddings` written; forward-only
+  `migrate` runner. *(Not yet applied to a real DB — needs `DATABASE_URL`.)*
+- ✅ `packages/ai`: full provider-agnostic layer; `pnpm -r typecheck` passes against Anthropic +
+  OpenAI SDKs.
+- ✅ `packages/mcp-crm`: `list_clients` server; **verified end-to-end** over the MCP protocol
+  (initialize / tools-list / tools-call).
+- ✅ `apps/web`: Next.js app + Supabase client helpers; `next build` compiles and prerenders.
+
+Remaining — **needs your credentials** (see the checklist in
+[docs/02-tech-stack.md](../docs/02-tech-stack.md#provider-accounts-to-create-checklist)):
+- ⏳ Create Supabase project → set env → **apply migrations** (`pnpm --filter @retentionos/db migrate`)
+  and generate types (task 0.2).
+- ⏳ Auth: login + `users` profile link + protected route + session middleware (task 0.3).
+- ⏳ Prove the AI swap live: run `generate` against Anthropic, flip config to OpenAI (task 0.4).
+- ⏳ Prove MCP from **both** vendors against real data (task 0.6).
+- ⏳ CI (typecheck + lint + migrations-apply) and Vercel deploy (task 0.7).
+
+---
+
 ## Tasks
 
 ### 0.1 — Repo & app skeleton
