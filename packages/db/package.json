@@ -16,6 +16,7 @@
     "seed:pm": "tsx scripts/seed-pm.ts",
     "seed:content": "tsx scripts/seed-content.ts",
     "analytics": "tsx scripts/compute-analytics.ts",
+    "reporting": "tsx scripts/compute-reporting.ts",
     "typecheck": "tsc --noEmit",
     "gen-types": "supabase gen types typescript --linked > src/types.gen.ts"
   },

@@ -432,3 +432,36 @@ export interface ResolvedAudienceMember {
   churn_risk: string
   lifecycle_stage: LifecycleStageCustomer
 }
+
+// ---------------------------------------------------------------------------
+// Reporting (Phase 5). Mirrors the columns in migration 0007_reporting.sql. See
+// packages/db/src/reporting.ts for the health-score heuristic and snapshot/read functions.
+// ---------------------------------------------------------------------------
+
+export interface MetricSnapshot {
+  id: string
+  organization_id: string
+  client_id: string | null
+  metric_key: string
+  value: string
+  period: string
+  captured_at: string
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+/** The v1 health-score heuristic's inputs — see reporting.ts#computeClientHealthDrivers. */
+export interface HealthDrivers {
+  activeShare: number
+  churnShare: number
+  riskShare: number
+  overdue: number
+}
+
+/** Output of computeHealthScores — one row per client, with the inputs that drove the score. */
+export interface ClientHealth {
+  client_id: string
+  name: string
+  health_score: number | null
+  drivers: HealthDrivers | null
+}
