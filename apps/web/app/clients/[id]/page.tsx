@@ -68,6 +68,9 @@ export default async function ClientDetailPage({
         <Link href={`/clients/${client.id}/retention`} style={linkStyle}>
           Retention →
         </Link>
+        <Link href={`/clients/${client.id}/tasks`} style={linkStyle}>
+          Tasks →
+        </Link>
       </div>
 
       <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.6rem', opacity: 0.75, flexWrap: 'wrap' }}>

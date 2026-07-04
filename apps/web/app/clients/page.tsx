@@ -26,7 +26,12 @@ export default async function ClientsPage({
 
   return (
     <main style={{ maxWidth: 960, margin: '0 auto', padding: '3rem 1.5rem' }}>
-      <h1 style={{ fontSize: '1.6rem', marginBottom: '0.25rem' }}>Clients</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+        <h1 style={{ fontSize: '1.6rem', marginBottom: '0.25rem' }}>Clients</h1>
+        <Link href="/tasks" style={linkStyle}>
+          Tasks →
+        </Link>
+      </div>
       <p style={{ opacity: 0.6, marginTop: 0 }}>{org.name}</p>
 
       <div style={{ display: 'flex', gap: '0.5rem', margin: '1.25rem 0', flexWrap: 'wrap' }}>

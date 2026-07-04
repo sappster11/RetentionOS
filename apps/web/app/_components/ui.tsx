@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react'
-import type { ClientStatus } from '@retentionos/db'
+import type { ClientStatus, TaskPriority, TaskStatus } from '@retentionos/db'
 
 export function Card({ title, children }: { title?: string; children: ReactNode }) {
   return (
@@ -60,6 +60,34 @@ export function StatusBadge({ status }: { status: ClientStatus }) {
   )
 }
 
+const PRIORITY_COLORS: Record<TaskPriority, { bg: string; fg: string }> = {
+  low: { bg: '#20242a', fg: '#9aa6b2' },
+  medium: { bg: '#1c2a3a', fg: '#7fb0ff' },
+  high: { bg: '#3a2a17', fg: '#f0b16a' },
+  urgent: { bg: '#3a1717', fg: '#f08a8a' },
+}
+
+export function PriorityBadge({ priority }: { priority: TaskPriority }) {
+  const colors = PRIORITY_COLORS[priority]
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        background: colors.bg,
+        color: colors.fg,
+        borderRadius: 999,
+        padding: '0.15rem 0.65rem',
+        fontSize: '0.7rem',
+        fontWeight: 600,
+        textTransform: 'capitalize',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {priority}
+    </span>
+  )
+}
+
 export function Field({
   label,
   children,
@@ -111,4 +139,30 @@ export function formatDate(value: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+/**
+ * Formats a date-only field (e.g. `due_on`, `starts_on`) without shifting timezones.
+ * The db layer types these as `string`, but the underlying `date` columns come back
+ * from `pg` as `Date` objects at runtime — `new Date(value)` tolerates either shape.
+ */
+export function formatDateOnly(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  })
+}
+
+/** A task is overdue if it has a due date in the past and hasn't been completed. */
+export function isTaskOverdue(dueOn: string | null, status: TaskStatus): boolean {
+  if (!dueOn || status === 'done') return false
+  const due = new Date(dueOn)
+  if (Number.isNaN(due.getTime())) return false
+  const todayKey = new Date().toISOString().slice(0, 10)
+  const dueKey = due.toISOString().slice(0, 10)
+  return dueKey < todayKey
 }
