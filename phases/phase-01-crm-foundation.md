@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-04).** This spec describes the pre-pivot build. The authoritative plan is now [docs/08-course-correction.md](../docs/08-course-correction.md). Kept as historical record.
+
 # Phase 1 — Client CRM (the wedge)
 
 **Goal:** replace Airtable as the home of client data. Clients, contacts, and the external

@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-04).** This doc describes the pre-pivot build. The authoritative plan is now [08-course-correction.md](08-course-correction.md). Kept as historical record.
+
 # 06 · Website (Phase 6)
 
 Deliberately **last**. The internal machine is the moat; the website is the storefront, and it's far

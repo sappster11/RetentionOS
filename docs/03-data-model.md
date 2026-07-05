@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-04).** This doc describes the pre-pivot build. The authoritative plan is now [08-course-correction.md](08-course-correction.md). Kept as historical record.
+
 # 03 · Data Model
 
 This is the spine everything plugs into. Get the CRM core right and the rest composes. Below is the

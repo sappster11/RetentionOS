@@ -1,75 +1,53 @@
 # RetentionOS
 
-An **owned, AI-native operating system for a retention agency.** One data spine that every
-tool plugs into, dashboards on top, and — most importantly — the whole thing is chattable and
-drivable by any AI model (Claude, OpenAI, or whatever comes next).
+The operating platform for **Roam** — an Airtable-class flexible data platform that humans
+and AI agents operate as equals. You (or an agent, mid-conversation) create tables, fields,
+linked records, rollups, and views at runtime; Roam's client-hub CRM and sales pipeline are
+the first things *configured inside* the engine, not hardcoded into it.
 
-This repository currently contains **the plan**, written as a build handbook. It is designed to
-be handed to a cheaper AI coding model (or a junior dev) who executes it phase by phase, checking
-their work against the acceptance criteria in each doc.
+> **Course correction (2026-07-04):** this repo originally contained a fixed-schema
+> retention app built from a written plan. That build missed the target and has been
+> superseded. The authoritative plan is now
+> **[docs/08-course-correction.md](docs/08-course-correction.md)** — read that first.
+> Old docs and phase specs are banner-marked and kept as historical record.
 
 ## The one-paragraph thesis
 
-We own the **core** (our data + our AI orchestration) and rent the **edges** (Slack, calendars,
-email/SMS providers). Every subsystem — CRM, project management, content, reporting — is built on
-one Postgres database and fronted by a **Model Context Protocol (MCP) server**, so any AI agent can
-read and operate the entire agency through one consistent tool interface. Generation (writing
-emails, summaries, etc.) goes through a **provider-agnostic layer** so we can swap models with a
-config change. The endgame is a single "chat with everything" surface over all of it.
+We own the **core** (our data + the engine) and rent the **edges** (Slack, Tally, n8n,
+email/SMS providers). One service layer sits under everything; the web UI, a generic
+**MCP server**, and n8n webhooks are all clients of the same API — so anything a human can
+do by clicking, an agent can do by tool call (**agent-parity law**). The endgame is an
+agency that runs itself through this platform, with a chat surface embedded in the walls.
 
-## How to read this repo (start here)
+## How to read this repo
 
-Read the docs **in order**. Each builds on the last.
-
-| # | Doc | What it answers |
-|---|-----|-----------------|
-| 00 | [docs/00-vision-and-principles.md](docs/00-vision-and-principles.md) | Why we're building this and the rules we never break |
-| 01 | [docs/01-architecture.md](docs/01-architecture.md) | The three planes and how data flows |
-| 02 | [docs/02-tech-stack.md](docs/02-tech-stack.md) | Exact tools, versions, and why each was chosen |
-| 03 | [docs/03-data-model.md](docs/03-data-model.md) | The core tables everything depends on |
-| 04 | [docs/04-ai-and-agent-layer.md](docs/04-ai-and-agent-layer.md) | Provider-agnostic LLM + MCP (the "any model" magic) |
-| 05 | [docs/05-roadmap.md](docs/05-roadmap.md) | The phase-by-phase build order and milestones |
-| 06 | [docs/06-website.md](docs/06-website.md) | The marketing site (deliberately last) |
-| 07 | [docs/07-working-agreement.md](docs/07-working-agreement.md) | **Rules for the AI/dev executing this plan. Read before writing code.** |
-
-Then execute phases from `/phases`, in order:
-
-| Phase | Spec | Milestone |
-|-------|------|-----------|
-| 0 | [phase-00-foundations.md](phases/phase-00-foundations.md) | App + owned DB + provider-agnostic AI proven on 2 vendors |
-| 1 | [phase-01-crm-foundation.md](phases/phase-01-crm-foundation.md) | Client CRM replaces Airtable; chat-with-your-client works |
-| 2 | [phase-02-agentic-pm.md](phases/phase-02-agentic-pm.md) | An agent proposes & creates tasks; status rolls up |
-| 3 | [phase-03-client-data-analytics.md](phases/phase-03-client-data-analytics.md) | Shopify + Klaviyo synced; RFM/lifecycle/cohorts drive decisions |
-| 4 | [phase-04-content-engine.md](phases/phase-04-content-engine.md) | Data-backed email + SMS generated, reviewed, sent |
-| 5 | [phase-05-reporting.md](phases/phase-05-reporting.md) | Live retention dashboards + speakable metrics |
-| 6 | [phase-06-data-backbone.md](phases/phase-06-data-backbone.md) | One chat surface over everything, driving every subsystem |
-| 7 | [phase-07-website.md](phases/phase-07-website.md) | Public site that books calls |
+| Doc | What it answers |
+|-----|-----------------|
+| [docs/08-course-correction.md](docs/08-course-correction.md) | **The plan. Start here.** Decisions, V1 scope, phases A–D |
+| [docs/07-working-agreement.md](docs/07-working-agreement.md) | Rules for the AI/dev executing the plan (still in force) |
+| [docs/02-tech-stack.md](docs/02-tech-stack.md) | Tooling (still mostly accurate; 08 wins on conflict) |
+| [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md) | How to run locally |
+| docs 00–06, `phases/`, [docs/BUILD_STATUS.md](docs/BUILD_STATUS.md) | Superseded pre-pivot plan (historical) |
 
 ## Build order at a glance
 
 ```
-Phase 0  Foundations      repo, DB, auth, multi-tenant, provider-agnostic LLM, first MCP skeleton
-Phase 1  Client CRM       ← THE WEDGE. Everything builds off this. Replaces Airtable.
-Phase 2  Agentic PM       projects + tasks an agent can drive
-Phase 3  Client Data      Shopify + Klaviyo ingestion + retention analytics (RFM/lifecycle/cohorts)
-Phase 4  Content Engine   data-backed email + SMS at volume (audiences = queries against Phase 3)
-Phase 5  Reporting        dashboards over our own data
-Phase 6  Data Backbone    "chat with everything" — the final boss
-Phase 7  Website          public marketing site
+Phase A  Engine core       meta-schema, service layer, REST API, app shell, grid view
+Phase B  Relations & views linked records, lookups, rollups, Kanban, record detail
+Phase C  Agent surface     generic MCP server, chat sidebar (UI only), audit/history
+Phase D  Roam CRM          client hub + sales pipeline as engine configurations, n8n webhooks
+Later    forms, wired in-app agent, automations, analytics backbone, multi-user
 ```
 
 ## Status
 
-- [x] Plan written
-All 8 phases are built to the extent possible without external credentials, verified against a
-local Postgres with **no API keys** — see **[docs/BUILD_STATUS.md](docs/BUILD_STATUS.md)** for exactly
-what runs now vs. what activates when you add a key/service.
+- [x] Course-correction plan written (docs/08)
+- [ ] Phase A — Engine core *(in progress)*
+- [ ] Phase B — Relations & views
+- [ ] Phase C — Agent surface
+- [ ] Phase D — Roam CRM as configuration
 
-- [x] Phase 0 — Foundations *(+ env-gated Supabase auth; live login needs a Supabase project)*
-- [x] Phase 1 — Client CRM *(RAG chat needs an embeddings key; Airtable import path built in Phase 3)*
-- [x] Phase 2 — Agentic Project Management *(in-app generation needs an LLM key; agents drive mcp-pm today)*
-- [x] Phase 3 — Client Data & Retention Analytics *(Shopify/Klaviyo/Airtable connectors fixture-verified; live sync needs per-client creds)*
-- [x] Phase 4 — Content Engine *(drafting via template fallback; real generation/delivery need keys)*
-- [x] Phase 5 — Reporting Dashboards *(Metabase deferred as a separate service)*
-- [x] Phase 6 — Data Backbone / Chat-with-everything *(keyless unified search + chat; semantic RAG needs embeddings)*
-- [x] Phase 7 — Website *(standalone marketing site in apps/site)*
+**Parked from the pre-pivot build** (kept in-tree, out of scope): migrations 0003–0008 and
+their tables, `packages/integrations` (Shopify/Klaviyo/Airtable connectors), the six
+domain `packages/mcp-*` servers, and the old app routes. Migrations 0001 (orgs/auth/RLS)
+and 0002 (pgvector) remain foundations. `apps/site` is untouched by the pivot.

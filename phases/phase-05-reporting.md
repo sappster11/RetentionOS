@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-04).** This spec describes the pre-pivot build. The authoritative plan is now [docs/08-course-correction.md](../docs/08-course-correction.md). Kept as historical record.
+
 # Phase 5 — Reporting Dashboards
 
 **Goal:** great reporting over our **own** data — for the team now, and client-facing later. Turn the

@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-04).** This doc describes the pre-pivot build. The authoritative plan is now [08-course-correction.md](08-course-correction.md). Kept as historical record.
+
 # 01 · Architecture
 
 RetentionOS is organized into **three planes**. Keep them mentally separate; most design mistakes

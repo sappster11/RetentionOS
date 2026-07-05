@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-04).** This spec describes the pre-pivot build. The authoritative plan is now [docs/08-course-correction.md](../docs/08-course-correction.md). Kept as historical record.
+
 # Phase 3 — Client Data & Retention Analytics (Shopify + Klaviyo)
 
 **Goal:** ingest each client's **Shopify** (e-commerce) and **Klaviyo** (engagement) data into our

@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-04).** This doc describes the pre-pivot build. The authoritative plan is now [08-course-correction.md](08-course-correction.md). Kept as historical record.
+
 # 05 · Roadmap
 
 Build order reflects your call: **the client CRM is the wedge everything plugs into**, and the

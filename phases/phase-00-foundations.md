@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-04).** This spec describes the pre-pivot build. The authoritative plan is now [docs/08-course-correction.md](../docs/08-course-correction.md). Kept as historical record.
+
 # Phase 0 — Foundations
 
 **Goal:** a running, deployed app on an owned database, with a *proven* provider-agnostic AI layer

@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-04).** This spec describes the pre-pivot build. The authoritative plan is now [docs/08-course-correction.md](../docs/08-course-correction.md). Kept as historical record.
+
 # Phase 2 — Agentic Project Management
 
 **Goal:** projects and tasks that live on top of the CRM and can be **driven by an agent** — proposed,

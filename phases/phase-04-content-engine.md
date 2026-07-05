@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-04).** This spec describes the pre-pivot build. The authoritative plan is now [docs/08-course-correction.md](../docs/08-course-correction.md). Kept as historical record.
+
 # Phase 4 — Content Engine (email + SMS at volume)
 
 **Goal:** produce **large volumes of data-backed** emails and SMS, grounded in each client's data and

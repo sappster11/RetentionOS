@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-04).** This doc describes the pre-pivot build. The authoritative plan is now [08-course-correction.md](08-course-correction.md). Kept as historical record.
+
 # 04 · AI & Agent Layer
 
 This is the doc that makes "flexible with Claude or OpenAI or any model" real. There are **two

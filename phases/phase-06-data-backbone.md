@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED (2026-07-04).** This spec describes the pre-pivot build. The authoritative plan is now [docs/08-course-correction.md](../docs/08-course-correction.md). Kept as historical record.
+
 # Phase 6 — Data Backbone / Chat-with-everything (final boss)
 
 **Goal:** one surface that chats across **all** of it — CRM, PM, content, reporting, Slack history,
