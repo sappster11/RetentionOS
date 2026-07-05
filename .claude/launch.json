@@ -7,6 +7,13 @@
       "runtimeArgs": ["--filter", "@retentionos/web", "start"],
       "port": 3111,
       "autoPort": true
+    },
+    {
+      "name": "web-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@retentionos/web", "dev"],
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }
