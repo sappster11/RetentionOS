@@ -6,7 +6,8 @@
 
 import { getPool, query, queryOne, slugify } from '@retentionos/db'
 import { coerceValue, coerceValues, isFieldType, validateFieldOptions } from './fieldTypes'
-import { EngineError } from './types'
+import { enrichRecords, syncLinksForField } from './links'
+import { EngineError, isComputedType } from './types'
 import type {
   Actor,
   EngineField,
@@ -14,6 +15,7 @@ import type {
   EngineRecordRevision,
   EngineTable,
   EngineView,
+  EnrichedRecord,
   FieldOptions,
   FieldType,
   FilterCondition,
@@ -192,17 +194,117 @@ async function assertTable(orgId: string, tableId: string): Promise<EngineTable>
   return t
 }
 
+/** Raw field insert inside a tx client (used for both a field and its auto-created inverse). */
+async function insertField(
+  client: { query: (t: string, p?: unknown[]) => Promise<{ rows: unknown[] }> },
+  tableId: string,
+  name: string,
+  type: FieldType,
+  options: FieldOptions,
+  required: boolean,
+  position: number,
+  actor: Actor,
+): Promise<EngineField> {
+  const res = await client.query(
+    `insert into public.engine_fields
+       (table_id, name, type, options, position, required, created_by_type, created_by_id)
+     values ($1,$2,$3,$4::jsonb,$5,$6,$7::public.engine_actor_type,$8)
+     returning ${FIELD_COLS}`,
+    [tableId, name, type, JSON.stringify(options), position, required, actor.type, actor.id ?? null],
+  )
+  return res.rows[0] as EngineField
+}
+
+/**
+ * Enforce the Phase B field-creation restrictions that need a DB round-trip:
+ *  - linked_record.linkedTableId must be a real table in this org.
+ *  - lookup/rollup.recordLinkFieldId must be a linked_record field ON THIS table.
+ *  - lookup/rollup.targetFieldId must be a CONCRETE (non-computed) field on the linked table
+ *    (no lookup-of-lookup chains). Count rollups may omit targetFieldId.
+ */
+async function assertRelationOptions(
+  orgId: string,
+  tableId: string,
+  type: FieldType,
+  options: FieldOptions,
+): Promise<void> {
+  if (type === 'linked_record') {
+    const t = await getTable(orgId, options.linkedTableId!)
+    if (!t) throw new EngineError('linkedTableId does not reference a table in this org.', 'bad_options')
+    return
+  }
+  if (type === 'lookup' || type === 'rollup') {
+    const linkField = await queryOne<EngineField>(
+      `select ${FIELD_COLS} from public.engine_fields where table_id = $1 and id = $2`,
+      [tableId, options.recordLinkFieldId],
+    )
+    if (!linkField || linkField.type !== 'linked_record') {
+      throw new EngineError('recordLinkFieldId must be a linked_record field on this table.', 'bad_options')
+    }
+    const targetTableId = linkField.options.linkedTableId
+    if (options.targetFieldId) {
+      const targetField = await queryOne<EngineField>(
+        `select ${FIELD_COLS} from public.engine_fields where table_id = $1 and id = $2`,
+        [targetTableId, options.targetFieldId],
+      )
+      if (!targetField) {
+        throw new EngineError('targetFieldId is not a field on the linked table.', 'bad_options')
+      }
+      if (isComputedType(targetField.type)) {
+        throw new EngineError('targetFieldId must be a concrete (non-computed) field — no lookup chains.', 'bad_options')
+      }
+    }
+  }
+}
+
 export async function createField(
   orgId: string,
   tableId: string,
   input: CreateFieldInput,
   actor: Actor,
 ): Promise<EngineField> {
-  await assertTable(orgId, tableId)
+  const table = await assertTable(orgId, tableId)
   if (!input.name?.trim()) throw new EngineError('Field name is required.', 'bad_input')
   if (!isFieldType(input.type)) throw new EngineError(`Unknown field type "${input.type}".`, 'bad_type')
   const options = validateFieldOptions(input.type, input.options)
+  await assertRelationOptions(orgId, tableId, input.type, options)
   const pos = input.position ?? (await nextPosition('engine_fields', 'table_id', tableId))
+
+  // linked_record is special: creating one auto-creates the paired inverse field on the
+  // target table, and the two point at each other via inverseFieldId — inside one tx.
+  if (input.type === 'linked_record') {
+    const targetTableId = options.linkedTableId!
+    const targetPos = await nextPosition('engine_fields', 'table_id', targetTableId)
+    const pool = getPool()
+    const client = await pool.connect()
+    try {
+      await client.query('begin')
+      const source = await insertField(
+        client, tableId, input.name.trim(), 'linked_record',
+        { linkedTableId: targetTableId }, input.required ?? false, pos, actor,
+      )
+      // Inverse field name mirrors Airtable ("<Source Table>" on the target).
+      const inverse = await insertField(
+        client, targetTableId, table.name, 'linked_record',
+        { linkedTableId: tableId, inverseFieldId: source.id }, false, targetPos, actor,
+      )
+      // Back-fill the source field's inverseFieldId now that we know the inverse id.
+      const updated = await client.query(
+        `update public.engine_fields
+           set options = jsonb_set(options, '{inverseFieldId}', to_jsonb($2::text))
+         where id = $1 returning ${FIELD_COLS}`,
+        [source.id, inverse.id],
+      )
+      await client.query('commit')
+      return updated.rows[0] as EngineField
+    } catch (err) {
+      await client.query('rollback')
+      throw err
+    } finally {
+      client.release()
+    }
+  }
+
   const row = await queryOne<EngineField>(
     `insert into public.engine_fields
        (table_id, name, type, options, position, required, created_by_type, created_by_id)
@@ -273,11 +375,33 @@ export async function updateField(
 
 export async function deleteField(orgId: string, tableId: string, fieldId: string): Promise<void> {
   await assertTable(orgId, tableId)
-  const res = await query<{ id: string }>(
-    'delete from public.engine_fields where id = $1 and table_id = $2 returning id',
+  const field = await queryOne<EngineField>(
+    `select ${FIELD_COLS} from public.engine_fields where id = $1 and table_id = $2`,
     [fieldId, tableId],
   )
-  if (res.length === 0) throw new EngineError('Field not found.', 'not_found')
+  if (!field) throw new EngineError('Field not found.', 'not_found')
+
+  // A linked_record field is half of a pair — delete both sides (and, via FK cascade on
+  // engine_record_links.field_id, every edge under either field). One transaction.
+  if (field.type === 'linked_record') {
+    const inverseId = field.options.inverseFieldId
+    const pool = getPool()
+    const client = await pool.connect()
+    try {
+      await client.query('begin')
+      await client.query('delete from public.engine_fields where id = $1', [fieldId])
+      if (inverseId) await client.query('delete from public.engine_fields where id = $1', [inverseId])
+      await client.query('commit')
+    } catch (err) {
+      await client.query('rollback')
+      throw err
+    } finally {
+      client.release()
+    }
+    return
+  }
+
+  await query('delete from public.engine_fields where id = $1 and table_id = $2', [fieldId, tableId])
   // NOTE: existing record values keyed by this field id are left in place (harmless
   // orphans); a Phase B cleanup could prune them. Renames are free because values key
   // on field id, so we intentionally do not touch record data on field delete.
@@ -355,6 +479,25 @@ async function writeRevision(
   )
 }
 
+/** Split a coerced value map into stored jsonb values vs linked_record id-arrays. */
+function splitLinkValues(
+  fields: EngineField[],
+  coerced: Record<string, unknown>,
+): { stored: Record<string, unknown>; links: Map<string, string[]> } {
+  const byId = new Map(fields.map((f) => [f.id, f]))
+  const stored: Record<string, unknown> = {}
+  const links = new Map<string, string[]>()
+  for (const [fieldId, value] of Object.entries(coerced)) {
+    const field = byId.get(fieldId)
+    if (field?.type === 'linked_record') {
+      links.set(fieldId, Array.isArray(value) ? (value as string[]) : [])
+    } else {
+      stored[fieldId] = value
+    }
+  }
+  return { stored, links }
+}
+
 export async function createRecord(
   orgId: string,
   tableId: string,
@@ -364,34 +507,63 @@ export async function createRecord(
   await assertTable(orgId, tableId)
   const fields = await listFields(orgId, tableId)
 
-  // Coerce provided values, then enforce required fields that were omitted entirely.
-  const values = coerceValues(fields, rawValues)
+  // Coerce provided values (rejects computed-field writes), then separate linked_record
+  // arrays out of the stored jsonb — the links join table is their source of truth.
+  const coerced = coerceValues(fields, rawValues)
+  const { stored, links } = splitLinkValues(fields, coerced)
+
+  // Enforce required fields that were omitted entirely (linked_record required = non-empty).
   for (const f of fields) {
-    if (f.required && (values[f.id] === undefined || values[f.id] === null)) {
+    if (!f.required) continue
+    if (f.type === 'linked_record') {
+      if ((links.get(f.id) ?? []).length === 0) throw new EngineError(`Field "${f.name}" is required.`, 'required')
+    } else if (stored[f.id] === undefined || stored[f.id] === null) {
       throw new EngineError(`Field "${f.name}" is required.`, 'required')
     }
   }
 
   const pos = await nextPosition('engine_records', 'table_id', tableId)
+  const autoFields = fields.filter((f) => f.type === 'autonumber')
   const pool = getPool()
   const client = await pool.connect()
   try {
     await client.query('begin')
+
+    // Assign autonumbers from the per-table counter, bumped atomically in this tx.
+    if (autoFields.length > 0) {
+      const bumped = await client.query(
+        `update public.engine_tables set autonumber_seq = autonumber_seq + 1
+         where id = $1 returning autonumber_seq`,
+        [tableId],
+      )
+      const seq = Number((bumped.rows[0] as { autonumber_seq: string }).autonumber_seq)
+      for (const f of autoFields) stored[f.id] = seq
+    }
+
     const res = await client.query(
       `insert into public.engine_records
          (table_id, organization_id, values, position, created_by_type, created_by_id)
        values ($1,$2,$3::jsonb,$4,$5::public.engine_actor_type,$6)
        returning ${RECORD_COLS}`,
-      [tableId, orgId, JSON.stringify(values), pos, actor.type, actor.id ?? null],
+      [tableId, orgId, JSON.stringify(stored), pos, actor.type, actor.id ?? null],
     )
     const record = res.rows[0] as EngineRecord
+
+    // Sync link edges; record link changes in the create diff ({from:[], to:[ids]}).
+    const linkDiff: RevisionDiff = {}
+    for (const [fieldId, ids] of links) {
+      const field = fields.find((f) => f.id === fieldId)!
+      await syncLinksForField(client, orgId, field, record.id, ids)
+      if (ids.length) linkDiff[fieldId] = { from: [], to: ids }
+    }
+
     await writeRevision(client, {
       recordId: record.id,
       tableId,
       orgId,
       actor,
       op: 'create',
-      diff: createDiff(values),
+      diff: { ...createDiff(stored), ...linkDiff },
     })
     await client.query('commit')
     return record
@@ -412,18 +584,26 @@ export async function updateRecord(
 ): Promise<EngineRecord> {
   await assertTable(orgId, tableId)
   const fields = await listFields(orgId, tableId)
+  const byId = new Map(fields.map((f) => [f.id, f]))
   const existing = await getRecord(orgId, tableId, recordId)
   if (!existing) throw new EngineError('Record not found.', 'not_found')
 
   const coerced = coerceValues(fields, rawPatch)
+  const { stored: storedPatch, links: linkPatch } = splitLinkValues(fields, coerced)
   const before = existing.values
-  const after = { ...before, ...coerced }
+  const after = { ...before, ...storedPatch }
 
-  // Enforce required on any field the patch tries to clear.
+  // Enforce required on any non-link field the patch tries to clear.
   for (const f of fields) {
-    if (f.required && (after[f.id] === undefined || after[f.id] === null)) {
+    if (!f.required || f.type === 'linked_record') continue
+    if (after[f.id] === undefined || after[f.id] === null) {
       throw new EngineError(`Field "${f.name}" is required.`, 'required')
     }
+  }
+  // Required linked_record fields may not be cleared to empty.
+  for (const [fieldId, ids] of linkPatch) {
+    const f = byId.get(fieldId)!
+    if (f.required && ids.length === 0) throw new EngineError(`Field "${f.name}" is required.`, 'required')
   }
 
   const diff = updateDiff(before, after)
@@ -438,7 +618,15 @@ export async function updateRecord(
       [orgId, recordId, JSON.stringify(after), tableId],
     )
     const record = res.rows[0] as EngineRecord
-    // Only log a revision if something actually changed.
+
+    // Sync any linked_record fields in the patch; diff records {from:[old], to:[new]}.
+    for (const [fieldId, ids] of linkPatch) {
+      const field = byId.get(fieldId)!
+      const oldIds = await syncLinksForField(client, orgId, field, recordId, ids)
+      if (JSON.stringify(oldIds) !== JSON.stringify(ids)) diff[fieldId] = { from: oldIds, to: ids }
+    }
+
+    // Only log a revision if something actually changed (values or links).
     if (Object.keys(diff).length > 0) {
       await writeRevision(client, { recordId, tableId, orgId, actor, op: 'update', diff })
     }
@@ -490,6 +678,7 @@ export async function deleteRecords(
   }
 }
 
+/** Raw record read (no `display` map). Used internally on the write paths. */
 export async function getRecord(
   orgId: string,
   tableId: string,
@@ -502,6 +691,19 @@ export async function getRecord(
   )
 }
 
+/** Enriched record read: raw `values` (with linked-record id arrays projected) + `display`. */
+export async function getRecordEnriched(
+  orgId: string,
+  tableId: string,
+  recordId: string,
+): Promise<EnrichedRecord | null> {
+  const record = await getRecord(orgId, tableId, recordId)
+  if (!record) return null
+  const fields = await listFields(orgId, tableId)
+  const [enriched] = await enrichRecords(orgId, fields, [record])
+  return enriched ?? null
+}
+
 export interface QueryRecordsOptions {
   filters?: FilterCondition[]
   sorts?: SortSpec[]
@@ -510,7 +712,7 @@ export interface QueryRecordsOptions {
 }
 
 export interface QueryRecordsResult {
-  records: EngineRecord[]
+  records: EnrichedRecord[]
   total: number
   limit: number
   offset: number
@@ -537,6 +739,9 @@ export async function queryRecords(
   for (const f of opts.filters ?? []) {
     const field = byId.get(f.fieldId)
     if (!field) throw new EngineError(`Unknown field id "${f.fieldId}" in filter.`, 'unknown_field')
+    if (isComputedType(field.type) || field.type === 'linked_record') {
+      throw new EngineError(`Cannot filter on the computed/linked field "${field.name}".`, 'bad_input')
+    }
     const numeric = field.type === 'number' || field.type === 'currency'
     const path = `(values ->> ${pushParam(params, f.fieldId)})`
     const lhs = numeric ? `(${path})::numeric` : path
@@ -582,6 +787,9 @@ export async function queryRecords(
   for (const s of opts.sorts ?? []) {
     const field = byId.get(s.fieldId)
     if (!field) throw new EngineError(`Unknown field id "${s.fieldId}" in sort.`, 'unknown_field')
+    if (isComputedType(field.type) || field.type === 'linked_record') {
+      throw new EngineError(`Cannot sort on the computed/linked field "${field.name}".`, 'bad_input')
+    }
     const numeric = field.type === 'number' || field.type === 'currency'
     const expr = numeric
       ? `(values ->> ${pushParam(params, s.fieldId)})::numeric`
@@ -611,11 +819,13 @@ export async function queryRecords(
   params.push(offset)
   const offsetP = `$${params.length}`
 
-  const records = await query<EngineRecord>(
+  const rawRecords = await query<EngineRecord>(
     `select ${RECORD_COLS} from public.engine_records
      where ${whereSql} order by ${orderSql} limit ${limitP} offset ${offsetP}`,
     params,
   )
+  // Enrich the page (linked-record labels, lookups, rollups) with batched queries.
+  const records = await enrichRecords(orgId, fields, rawRecords)
   return { records, total, limit, offset }
 }
 

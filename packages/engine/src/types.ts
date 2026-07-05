@@ -11,7 +11,8 @@ export interface Actor {
   id?: string
 }
 
-/** Phase A field types. Phase B adds attachment/linked-record/lookup/rollup/etc. */
+/** All field types. Phase B adds relations (linked_record), computed (lookup/rollup),
+ * attachment, autonumber, and the created/modified time stamps. */
 export type FieldType =
   | 'text'
   | 'long_text'
@@ -24,6 +25,14 @@ export type FieldType =
   | 'datetime'
   | 'url'
   | 'email'
+  // Phase B
+  | 'attachment'
+  | 'linked_record'
+  | 'lookup'
+  | 'rollup'
+  | 'autonumber'
+  | 'created_time'
+  | 'last_modified_time'
 
 export const FIELD_TYPES: readonly FieldType[] = [
   'text',
@@ -37,7 +46,36 @@ export const FIELD_TYPES: readonly FieldType[] = [
   'datetime',
   'url',
   'email',
+  'attachment',
+  'linked_record',
+  'lookup',
+  'rollup',
+  'autonumber',
+  'created_time',
+  'last_modified_time',
 ] as const
+
+/** Field types whose value is derived at read time and can NEVER be written directly. */
+export const COMPUTED_FIELD_TYPES: readonly FieldType[] = [
+  'lookup',
+  'rollup',
+  'autonumber',
+  'created_time',
+  'last_modified_time',
+] as const
+
+export function isComputedType(t: FieldType): boolean {
+  return (COMPUTED_FIELD_TYPES as readonly string[]).includes(t)
+}
+
+/** Rollup aggregate functions. `count` works with targetFieldId omitted. */
+export type RollupAggregate = 'count' | 'sum' | 'avg' | 'min' | 'max' | 'concat'
+
+/** A single attachment — URL-based for now (native upload lands with Supabase storage). */
+export interface Attachment {
+  url: string
+  name?: string
+}
 
 /** A choice in a single_select / multi_select field, stored in field.options.choices. */
 export interface SelectChoice {
@@ -53,6 +91,18 @@ export interface FieldOptions {
   currencySymbol?: string
   /** Number of decimal places for number/currency fields (display hint). */
   precision?: number
+  // --- linked_record ---
+  /** Target table this linked_record field points at (self-links allowed). */
+  linkedTableId?: string
+  /** The auto-created inverse linked_record field on the target table. */
+  inverseFieldId?: string
+  // --- lookup / rollup ---
+  /** The linked_record field (on THIS table) whose links the lookup/rollup walks. */
+  recordLinkFieldId?: string
+  /** The concrete field on the linked table to pull / aggregate (optional for count). */
+  targetFieldId?: string
+  /** Rollup only: how to aggregate the collected target values. */
+  aggregate?: RollupAggregate
 }
 
 export type ViewType = 'grid' | 'kanban'
@@ -116,6 +166,28 @@ export interface EngineRecord {
   created_by_id: string | null
   created_at: string
   updated_at: string
+}
+
+/** A linked record reduced to what the UI needs: its id + primary-field label. */
+export interface LinkedRecordRef {
+  id: string
+  label: string
+}
+
+/**
+ * The `display` sibling map returned alongside `values`. Computed at read time:
+ *  - linked_record → LinkedRecordRef[]  (ids + primary-field labels)
+ *  - lookup        → unknown[]          (the pulled target values, one per linked record)
+ *  - rollup        → number | string | null  (the aggregate)
+ *  - attachment    → passthrough of the stored array (UI convenience)
+ *  - autonumber / created_time / last_modified_time → the computed scalar
+ * `values` stays RAW (ids / stored scalars only); `display` is never persisted.
+ */
+export type RecordDisplay = Record<string, unknown>
+
+/** A record enriched for reads: raw `values` plus the computed `display` sibling map. */
+export interface EnrichedRecord extends EngineRecord {
+  display: RecordDisplay
 }
 
 export interface EngineView {

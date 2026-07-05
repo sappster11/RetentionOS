@@ -23,6 +23,7 @@ export {
   updateRecord,
   deleteRecords,
   getRecord,
+  getRecordEnriched,
   queryRecords,
   // views
   createView,
