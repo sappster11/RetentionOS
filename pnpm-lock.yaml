@@ -127,6 +127,9 @@ importers:
         specifier: ^8.13.1
         version: 8.22.0
     devDependencies:
+      '@retentionos/engine':
+        specifier: workspace:*
+        version: link:../engine
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
