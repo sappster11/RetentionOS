@@ -1,10 +1,11 @@
 import { notFound } from 'next/navigation'
 import { describeTable, getTableBySlug, queryRecords } from '@retentionos/engine'
 import { getCurrentOrg } from '@/lib/org'
-import { Grid } from '@/app/_ui/Grid'
+import { TableWorkspace } from '@/app/_ui/TableWorkspace'
 
-// Server component: resolve slug -> table, load its fields + first page of records, and
-// hand the initial data to the interactive Grid (which mutates via /api/v1).
+// Server component: resolve slug -> table, load its fields, views, and first page of
+// records, then hand the initial data to the interactive TableWorkspace (toolbar + views
+// panel + grid). All mutations go back through /api/v1.
 export default async function TablePage({
   params,
 }: {
@@ -21,10 +22,12 @@ export default async function TablePage({
   ])
 
   return (
-    <Grid
+    <TableWorkspace
       table={descriptor.table}
       initialFields={descriptor.fields}
+      initialViews={descriptor.views}
       initialRecords={page.records}
+      initialTotal={page.total}
     />
   )
 }

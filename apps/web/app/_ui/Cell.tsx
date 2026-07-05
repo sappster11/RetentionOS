@@ -6,14 +6,19 @@
 import { useEffect, useRef, useState } from 'react'
 import type { EngineField, SelectChoice } from '@retentionos/engine'
 
+// Airtable-ish "Light2" pastels — soft fills with a legible dark text tone. Extra names
+// (teal/pink/cyan) map to Airtable's tealLight2 / pinkLight2 / cyanLight2 equivalents.
 const CHOICE_COLORS: Record<string, { bg: string; fg: string }> = {
-  gray: { bg: '#e6e6e8', fg: '#3a3a3d' },
-  blue: { bg: '#d9e8fb', fg: '#1a4e8a' },
-  green: { bg: '#d7f0dd', fg: '#1f6b39' },
-  red: { bg: '#fbdcdc', fg: '#9a2626' },
-  yellow: { bg: '#f7edc9', fg: '#7a5c12' },
-  purple: { bg: '#e7ddf7', fg: '#5b3a95' },
-  orange: { bg: '#fbe4cf', fg: '#8a4f14' },
+  gray: { bg: '#e5e9ed', fg: '#464b52' },
+  blue: { bg: '#cfdfff', fg: '#2750ae' },
+  cyan: { bg: '#cbf0ff', fg: '#0b6b93' },
+  teal: { bg: '#c2f5e9', fg: '#0b6b5b' },
+  green: { bg: '#d1f7c4', fg: '#337321' },
+  yellow: { bg: '#ffeab6', fg: '#7a5b12' },
+  orange: { bg: '#ffdcc7', fg: '#a54800' },
+  red: { bg: '#ffdce5', fg: '#aa2947' },
+  pink: { bg: '#ffdaf3', fg: '#9c2b7f' },
+  purple: { bg: '#ede2fe', fg: '#6b3fa0' },
 }
 
 function chipStyle(color: string) {
@@ -39,16 +44,22 @@ function fmtCurrency(v: unknown, field: EngineField): string {
   return `${sym}${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-const cellPad = '6px 8px'
+const cellPad = '0 8px'
+
+type NavDir = 'down' | 'right'
 
 export function Cell({
   field,
   value,
   onCommit,
+  focused,
+  onNavigate,
 }: {
   field: EngineField
   value: unknown
   onCommit: (raw: unknown) => void
+  focused?: boolean
+  onNavigate?: (dir: NavDir) => void
 }) {
   const [editing, setEditing] = useState(false)
   const choices: SelectChoice[] = field.options.choices ?? []
@@ -57,7 +68,7 @@ export function Cell({
   // Non-text controls render inline (no click-to-edit dance).
   if (field.type === 'checkbox') {
     return (
-      <div style={{ padding: cellPad, textAlign: 'center' }}>
+      <div style={{ height: 'var(--row-h)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <input
           type="checkbox"
           checked={value === true}
@@ -68,26 +79,39 @@ export function Cell({
   }
 
   if (field.type === 'single_select') {
+    const sel = typeof value === 'string' ? value : ''
+    const selChoice = sel ? choiceById.get(sel) : undefined
     return (
-      <select
-        value={typeof value === 'string' ? value : ''}
-        onChange={(e) => onCommit(e.target.value || null)}
-        style={{
-          width: '100%',
-          border: 'none',
-          background: 'transparent',
-          padding: cellPad,
-          outline: 'none',
-          color: 'var(--text)',
-        }}
-      >
-        <option value="">—</option>
-        {choices.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name}
-          </option>
-        ))}
-      </select>
+      <div style={{ position: 'relative', height: 'var(--row-h)', display: 'flex', alignItems: 'center', padding: cellPad }}>
+        {selChoice ? (
+          <span style={chipStyle(selChoice.color)}>{selChoice.name}</span>
+        ) : (
+          <span style={{ color: 'var(--text-faint)' }} />
+        )}
+        <select
+          value={sel}
+          onChange={(e) => onCommit(e.target.value || null)}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            border: 'none',
+            background: 'transparent',
+            outline: 'none',
+            color: 'transparent',
+            opacity: 0,
+            cursor: 'pointer',
+          }}
+        >
+          <option value="">—</option>
+          {choices.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </div>
     )
   }
 
@@ -118,7 +142,7 @@ export function Cell({
           if (!v) return onCommit(null)
           onCommit(isDate ? v : new Date(v).toISOString())
         }}
-        style={{ width: '100%', border: 'none', background: 'transparent', padding: cellPad, outline: 'none' }}
+        style={{ width: '100%', height: 'var(--row-h)', border: 'none', background: 'transparent', padding: cellPad, outline: 'none' }}
       />
     )
   }
@@ -129,9 +153,10 @@ export function Cell({
       <TextEditor
         field={field}
         initial={value}
-        onDone={(raw) => {
+        onDone={(raw, nav) => {
           setEditing(false)
           if (raw !== undefined) onCommit(raw)
+          if (nav) onNavigate?.(nav)
         }}
       />
     )
@@ -141,23 +166,58 @@ export function Cell({
   if (field.type === 'currency' && value != null && value !== '') display = fmtCurrency(value, field)
   if (field.type === 'url' && typeof value === 'string' && value) {
     display = (
-      <a href={value} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }} onClick={(e) => e.stopPropagation()}>
+      <a
+        href={value}
+        target="_blank"
+        rel="noreferrer"
+        style={{
+          color: 'var(--accent)',
+          textDecoration: 'underline',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          display: 'inline-block',
+          maxWidth: '100%',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
         {value}
       </a>
     )
   }
 
+  const numeric = field.type === 'number' || field.type === 'currency'
   return (
     <div
       onClick={() => setEditing(true)}
+      onKeyDown={(e) => {
+        // When the cell is focused (not editing), Enter/Tab navigate; typing starts edit.
+        if (!focused) return
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          onNavigate?.('down')
+        } else if (e.key === 'Tab') {
+          e.preventDefault()
+          onNavigate?.('right')
+        } else if (e.key.length === 1) {
+          setEditing(true)
+        }
+      }}
+      tabIndex={focused ? 0 : -1}
+      ref={(el) => {
+        if (focused && el) el.focus()
+      }}
       style={{
         padding: cellPad,
-        minHeight: 30,
+        height: 'var(--row-h)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: numeric ? 'flex-end' : 'flex-start',
         cursor: 'text',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
-        whiteSpace: field.type === 'long_text' ? 'normal' : 'nowrap',
-        textAlign: field.type === 'number' || field.type === 'currency' ? 'right' : 'left',
+        whiteSpace: 'nowrap',
+        outline: 'none',
       }}
     >
       {display}
@@ -172,7 +232,7 @@ function TextEditor({
 }: {
   field: EngineField
   initial: unknown
-  onDone: (raw: unknown) => void
+  onDone: (raw: unknown, nav?: 'down' | 'right') => void
 }) {
   const [val, setVal] = useState(initial == null ? '' : String(initial))
   const ref = useRef<HTMLInputElement>(null)
@@ -182,6 +242,7 @@ function TextEditor({
   }, [])
 
   const numeric = field.type === 'number' || field.type === 'currency'
+  const commitVal = () => (val === '' ? null : val)
 
   return (
     <input
@@ -189,16 +250,24 @@ function TextEditor({
       value={val}
       inputMode={numeric ? 'decimal' : undefined}
       onChange={(e) => setVal(e.target.value)}
-      onBlur={() => onDone(val === '' ? null : val)}
+      onBlur={() => onDone(commitVal())}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') onDone(val === '' ? null : val)
-        if (e.key === 'Escape') onDone(undefined)
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          onDone(commitVal(), 'down')
+        } else if (e.key === 'Tab') {
+          e.preventDefault()
+          onDone(commitVal(), 'right')
+        } else if (e.key === 'Escape') {
+          onDone(undefined)
+        }
       }}
       style={{
         width: '100%',
+        height: 'calc(var(--row-h) - 2px)',
         border: '2px solid var(--accent)',
         borderRadius: 3,
-        padding: '4px 6px',
+        padding: '0 6px',
         outline: 'none',
         textAlign: numeric ? 'right' : 'left',
       }}
@@ -226,10 +295,10 @@ function MultiSelectCell({
   }
 
   return (
-    <div style={{ position: 'relative', padding: cellPad, minHeight: 30 }}>
+    <div style={{ position: 'relative', padding: cellPad, height: 'var(--row-h)', display: 'flex', alignItems: 'center' }}>
       <div
         onClick={() => setOpen((v) => !v)}
-        style={{ display: 'flex', gap: 4, flexWrap: 'wrap', cursor: 'pointer', minHeight: 18 }}
+        style={{ display: 'flex', gap: 4, flexWrap: 'nowrap', overflow: 'hidden', cursor: 'pointer', width: '100%' }}
       >
         {selected.map((id) => {
           const c = byId.get(id)

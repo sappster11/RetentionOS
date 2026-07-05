@@ -1,238 +1,368 @@
 'use client'
 
-// The spreadsheet-style grid: renders records as rows, fields as columns. Inline cell
-// editing per field type (Cell), an add-row button, and an add-field column header
-// (AddFieldPopover). All mutations go through /api/v1 via the api client. State is held
-// locally and reconciled from the server response of each call.
-import { useState } from 'react'
+// The Airtable-parity grid. Rows = records, columns = (visible) fields.
+//
+// Anatomy:
+//  - Frozen row-number column (sticky left): index, hover-checkbox, select-all in header.
+//  - First data field frozen alongside it (sticky), stronger right border (primary field).
+//  - Column headers: field-type icon + name; a trailing "+" header opens AddFieldPopover.
+//  - 32px rows, 13px text, subtle separators, no vertical zebra.
+//  - Cell focus: 2px blue outline; Enter commits + moves down, Tab commits + moves right,
+//    Escape cancels. (Handled inside Cell; the grid tracks the focused cell coordinate.)
+//  - Floating bar when rows are selected: count + Delete (bulk-delete endpoint).
+//  - Pinned footer: "+ Add" (left) and "{total} records" (right).
+//  - Search: rows/cells matching the query are highlighted; the grid scrolls to the first.
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EngineField, EngineRecord, EngineTable, FieldOptions, FieldType } from '@retentionos/engine'
-import { api } from './apiClient'
 import { Cell } from './Cell'
-import { AddFieldPopover, FIELD_TYPE_LABELS } from './AddFieldPopover'
+import { AddFieldPopover } from './AddFieldPopover'
+import { FieldIcon, PlusIcon, TrashIcon } from './icons'
 
-const TYPE_ICON: Record<FieldType, string> = {
-  text: 'A',
-  long_text: '¶',
-  single_select: '⏷',
-  multi_select: '☰',
-  number: '#',
-  currency: '$',
-  checkbox: '☑',
-  date: '📅',
-  datetime: '🕐',
-  url: '🔗',
-  email: '@',
-}
+const ROWNUM_W = 56
+const COL_W = 200
 
 export function Grid({
   table,
-  initialFields,
-  initialRecords,
+  fields,
+  records,
+  total,
+  search,
+  onCommitCell,
+  onAddRow,
+  onBulkDelete,
+  onAddField,
 }: {
   table: EngineTable
-  initialFields: EngineField[]
-  initialRecords: EngineRecord[]
+  fields: EngineField[]
+  records: EngineRecord[]
+  total: number
+  search: string
+  onCommitCell: (record: EngineRecord, field: EngineField, raw: unknown) => void
+  onAddRow: () => void
+  onBulkDelete: (ids: string[]) => void
+  onAddField: (input: { name: string; type: FieldType; options?: FieldOptions; required?: boolean }) => Promise<void>
 }) {
-  const [fields, setFields] = useState<EngineField[]>(initialFields)
-  const [records, setRecords] = useState<EngineRecord[]>(initialRecords)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [addFieldOpen, setAddFieldOpen] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Focused cell as [rowIndex, colIndex]. colIndex indexes `fields`.
+  const [focus, setFocus] = useState<{ r: number; c: number } | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const firstMatchRef = useRef<HTMLTableCellElement>(null)
 
-  async function commitCell(record: EngineRecord, field: EngineField, raw: unknown) {
-    setError(null)
-    // Optimistic local update, reconciled by the server response.
-    setRecords((rs) =>
-      rs.map((r) => (r.id === record.id ? { ...r, values: { ...r.values, [field.id]: raw } } : r)),
-    )
-    try {
-      const updated = await api.updateRecord(table.id, record.id, { [field.id]: raw })
-      setRecords((rs) => rs.map((r) => (r.id === updated.id ? updated : r)))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Update failed.')
-      // Reload the record from server to undo the optimistic change.
-      try {
-        const page = await api.queryRecords(table.id, { limit: 200 })
-        setRecords(page.records)
-      } catch {
-        /* leave optimistic state; the error is already surfaced */
-      }
+  // Selection is scoped to currently-loaded records; drop ids that disappeared.
+  useEffect(() => {
+    setSelected((sel) => {
+      if (sel.size === 0) return sel
+      const present = new Set(records.map((r) => r.id))
+      const next = new Set([...sel].filter((id) => present.has(id)))
+      return next.size === sel.size ? sel : next
+    })
+  }, [records])
+
+  const q = search.trim().toLowerCase()
+  const matchRow = useMemo(() => {
+    if (!q) return () => false
+    return (rec: EngineRecord) =>
+      Object.values(rec.values).some((v) => v != null && String(v).toLowerCase().includes(q))
+  }, [q])
+
+  // Scroll to first match when search changes.
+  useEffect(() => {
+    if (q && firstMatchRef.current) {
+      firstMatchRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' })
     }
+  }, [q, records])
+
+  const allSelected = records.length > 0 && selected.size === records.length
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(records.map((r) => r.id)))
+  }
+  function toggleOne(id: string) {
+    setSelected((s) => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
   }
 
-  async function addRow() {
-    setError(null)
-    try {
-      const rec = await api.createRecord(table.id, {})
-      setRecords((rs) => [...rs, rec])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add row.')
-    }
+  // Keyboard navigation between focused cells; Cell reports intent via onNavigate.
+  function move(r: number, c: number, dr: number, dc: number) {
+    const nr = Math.min(Math.max(r + dr, 0), records.length - 1)
+    const nc = Math.min(Math.max(c + dc, 0), fields.length - 1)
+    setFocus({ r: nr, c: nc })
   }
 
-  async function deleteRow(id: string) {
-    setError(null)
-    const prev = records
-    setRecords((rs) => rs.filter((r) => r.id !== id))
-    try {
-      await api.deleteRecord(table.id, id)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Delete failed.')
-      setRecords(prev)
-    }
-  }
-
-  async function addField(input: {
-    name: string
-    type: FieldType
-    options?: FieldOptions
-    required?: boolean
-  }) {
-    const field = await api.createField(table.id, input)
-    setFields((fs) => [...fs, field])
-    setAddFieldOpen(false)
-  }
-
-  const colWidth = 200
+  let firstMatchSeen = false
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-      <div style={{ padding: '14px 16px 8px', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 18 }}>{table.icon ?? '▦'}</span>
-        <h1 style={{ fontSize: 17, margin: 0 }}>{table.name}</h1>
-        {table.description ? (
-          <span style={{ color: 'var(--text-faint)', fontSize: 12 }}>· {table.description}</span>
-        ) : null}
-      </div>
-
-      {error ? (
-        <div style={{ margin: '0 16px 8px', color: 'var(--danger)', fontSize: 12 }}>{error}</div>
-      ) : null}
-
-      <div style={{ overflow: 'auto', padding: '0 16px 24px' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, position: 'relative' }}>
+      <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
         <table
           style={{
             borderCollapse: 'separate',
             borderSpacing: 0,
             fontSize: 13,
             tableLayout: 'fixed',
+            width: 'max-content',
           }}
         >
           <thead>
             <tr>
-              <th style={{ ...headStyle, width: 40, textAlign: 'center' }}>#</th>
-              {fields.map((f) => (
-                <th key={f.id} style={{ ...headStyle, width: colWidth }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span
-                      title={FIELD_TYPE_LABELS[f.type]}
-                      style={{ color: 'var(--text-faint)', width: 14, textAlign: 'center' }}
-                    >
-                      {TYPE_ICON[f.type]}
-                    </span>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {f.name}
-                    </span>
-                    {f.required ? <span style={{ color: 'var(--danger)' }}>*</span> : null}
-                  </div>
-                </th>
-              ))}
-              <th style={{ ...headStyle, width: 120, position: 'relative' }}>
+              {/* Row-number / select-all header (frozen) */}
+              <th style={{ ...headBase, width: ROWNUM_W, left: 0, zIndex: 3, textAlign: 'center' }}>
+                <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all" />
+              </th>
+              {fields.map((f, ci) => {
+                const frozen = ci === 0
+                return (
+                  <th
+                    key={f.id}
+                    style={{
+                      ...headBase,
+                      width: COL_W,
+                      ...(frozen
+                        ? { left: ROWNUM_W, zIndex: 3, borderRight: '2px solid var(--border-strong)' }
+                        : {}),
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ color: 'var(--text-faint)', display: 'flex' }}>
+                        <FieldIcon type={f.type} size={14} />
+                      </span>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                        {f.name}
+                      </span>
+                      {f.required ? <span style={{ color: 'var(--danger)' }}>*</span> : null}
+                    </div>
+                  </th>
+                )
+              })}
+              {/* Add-field header */}
+              <th style={{ ...headBase, width: 100, position: 'sticky', top: 0, overflow: 'visible' }}>
                 <button
                   onClick={() => setAddFieldOpen((v) => !v)}
+                  title="Add field"
                   style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '100%',
                     border: 'none',
                     background: 'transparent',
                     color: 'var(--text-muted)',
-                    fontWeight: 500,
                   }}
                 >
-                  + Add field
+                  <PlusIcon size={15} />
                 </button>
                 {addFieldOpen ? (
-                  <AddFieldPopover onClose={() => setAddFieldOpen(false)} onCreate={addField} />
+                  <AddFieldPopover
+                    onClose={() => setAddFieldOpen(false)}
+                    onCreate={async (input) => {
+                      await onAddField(input)
+                      setAddFieldOpen(false)
+                    }}
+                  />
                 ) : null}
               </th>
             </tr>
           </thead>
           <tbody>
-            {records.map((r, i) => (
-              <tr key={r.id} className="grid-row">
-                <td style={{ ...cellTd, width: 40, textAlign: 'center', color: 'var(--text-faint)', position: 'relative' }}>
-                  <span className="row-num">{i + 1}</span>
-                  <button
-                    className="row-del"
-                    onClick={() => deleteRow(r.id)}
-                    title="Delete row"
+            {records.map((rec, ri) => {
+              const isSel = selected.has(rec.id)
+              const rowMatches = matchRow(rec)
+              return (
+                <tr key={rec.id} className="grid-row" data-selected={isSel ? 'true' : undefined}>
+                  {/* Row number / checkbox (frozen) */}
+                  <td
                     style={{
-                      display: 'none',
-                      position: 'absolute',
-                      inset: 0,
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'var(--danger)',
+                      ...bodyBase,
+                      width: ROWNUM_W,
+                      left: 0,
+                      zIndex: 2,
+                      textAlign: 'center',
+                      background: isSel ? 'var(--selected)' : 'var(--bg)',
+                      position: 'sticky',
                     }}
                   >
-                    ×
-                  </button>
-                </td>
-                {fields.map((f) => (
-                  <td key={f.id} style={{ ...cellTd, width: colWidth }}>
-                    <Cell field={f} value={r.values[f.id]} onCommit={(raw) => commitCell(r, f, raw)} />
+                    <span className="row-num" style={{ color: 'var(--text-faint)' }}>
+                      {ri + 1}
+                    </span>
+                    <input
+                      className="row-check"
+                      type="checkbox"
+                      checked={isSel}
+                      onChange={() => toggleOne(rec.id)}
+                      aria-label={`Select row ${ri + 1}`}
+                      style={{ display: isSel ? 'inline-block' : 'none' }}
+                    />
                   </td>
-                ))}
-                <td style={cellTd} />
-              </tr>
-            ))}
+                  {fields.map((f, ci) => {
+                    const frozen = ci === 0
+                    const cellMatches = rowMatches && !!q && String(rec.values[f.id] ?? '').toLowerCase().includes(q)
+                    const isFirstMatch = cellMatches && !firstMatchSeen
+                    if (isFirstMatch) firstMatchSeen = true
+                    const focused = focus?.r === ri && focus?.c === ci
+                    return (
+                      <td
+                        key={f.id}
+                        ref={isFirstMatch ? firstMatchRef : undefined}
+                        onMouseDown={() => setFocus({ r: ri, c: ci })}
+                        style={{
+                          ...bodyBase,
+                          width: COL_W,
+                          background: cellMatches
+                            ? '#fff4c9'
+                            : isSel
+                              ? 'var(--selected)'
+                              : 'var(--bg)',
+                          ...(frozen
+                            ? { left: ROWNUM_W, zIndex: 1, position: 'sticky', borderRight: '2px solid var(--border-strong)' }
+                            : {}),
+                          ...(focused ? { boxShadow: 'inset 0 0 0 2px var(--accent)' } : {}),
+                        }}
+                      >
+                        <Cell
+                          field={f}
+                          value={rec.values[f.id]}
+                          focused={focused}
+                          onCommit={(raw) => onCommitCell(rec, f, raw)}
+                          onNavigate={(dir) => {
+                            if (dir === 'down') move(ri, ci, 1, 0)
+                            else if (dir === 'right') move(ri, ci, 0, 1)
+                          }}
+                        />
+                      </td>
+                    )
+                  })}
+                  <td style={{ ...bodyBase, background: isSel ? 'var(--selected)' : 'var(--bg)' }} />
+                </tr>
+              )
+            })}
           </tbody>
         </table>
 
-        <button
-          onClick={addRow}
-          style={{
-            marginTop: 6,
-            padding: '7px 12px',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius)',
-            background: 'var(--bg)',
-            color: 'var(--text-muted)',
-          }}
-        >
-          + Add row
-        </button>
-
         {fields.length === 0 ? (
-          <p style={{ color: 'var(--text-faint)', marginTop: 16, fontSize: 13 }}>
-            This table has no fields yet. Use <strong>+ Add field</strong> to add columns.
+          <p style={{ color: 'var(--text-faint)', margin: 16, fontSize: 13 }}>
+            This table has no fields yet. Use the <strong>+</strong> column header to add one.
           </p>
         ) : null}
       </div>
 
-      {/* Hover affordance: show the delete-× over the row number. */}
+      {/* Pinned footer */}
+      <div
+        style={{
+          height: 36,
+          flexShrink: 0,
+          borderTop: '1px solid var(--border)',
+          background: 'var(--bg)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 12px',
+        }}
+      >
+        <button
+          onClick={onAddRow}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            border: 'none',
+            background: 'transparent',
+            color: 'var(--text-muted)',
+            fontWeight: 500,
+          }}
+        >
+          <PlusIcon size={14} />
+          Add
+        </button>
+        <span style={{ color: 'var(--text-faint)', fontSize: 12.5 }}>
+          {total} {total === 1 ? 'record' : 'records'}
+        </span>
+      </div>
+
+      {/* Floating selection bar */}
+      {selected.size > 0 ? (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 52,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            background: 'var(--text)',
+            color: '#fff',
+            borderRadius: 8,
+            padding: '8px 14px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.24)',
+            zIndex: 20,
+            fontSize: 13,
+          }}
+        >
+          <span>
+            {selected.size} selected
+          </span>
+          <button
+            onClick={() => {
+              onBulkDelete([...selected])
+              setSelected(new Set())
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              border: 'none',
+              background: 'var(--danger)',
+              color: '#fff',
+              borderRadius: 6,
+              padding: '5px 10px',
+              fontWeight: 500,
+            }}
+          >
+            <TrashIcon size={14} />
+            Delete
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            style={{ border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.7)' }}
+          >
+            Clear
+          </button>
+        </div>
+      ) : null}
+
       <style>{`
+        tr.grid-row:hover td { background: var(--bg-subtle) !important; }
+        tr.grid-row[data-selected="true"]:hover td { background: var(--selected) !important; }
         tr.grid-row:hover .row-num { display: none; }
-        tr.grid-row:hover .row-del { display: block !important; }
-        tr.grid-row:hover td { background: var(--bg-subtle); }
+        tr.grid-row:hover .row-check { display: inline-block !important; }
       `}</style>
     </div>
   )
 }
 
-const headStyle: React.CSSProperties = {
+const headBase: React.CSSProperties = {
   textAlign: 'left',
   fontWeight: 500,
   color: 'var(--text-muted)',
-  padding: '6px 8px',
+  padding: '0 8px',
+  height: 34,
   background: 'var(--bg-subtle)',
-  border: '1px solid var(--border)',
-  borderLeft: 'none',
+  borderRight: '1px solid var(--border)',
+  borderBottom: '1px solid var(--border)',
   position: 'sticky',
   top: 0,
+  zIndex: 3,
 }
 
-const cellTd: React.CSSProperties = {
-  border: '1px solid var(--border)',
-  borderLeft: 'none',
-  borderTop: 'none',
+const bodyBase: React.CSSProperties = {
+  height: 'var(--row-h)',
+  borderRight: '1px solid var(--border)',
+  borderBottom: '1px solid var(--border)',
   padding: 0,
-  verticalAlign: 'top',
+  verticalAlign: 'middle',
+  background: 'var(--bg)',
 }
