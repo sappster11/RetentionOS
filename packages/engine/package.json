@@ -1,0 +1,25 @@
+{
+  "name": "@retentionos/engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The meta-schema engine service layer — the ONE layer under the UI, REST API, and MCP server (agent-parity law). Tables/fields/records/views as runtime data.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@retentionos/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.2",
+    "vitest": "^3.0.0"
+  }
+}

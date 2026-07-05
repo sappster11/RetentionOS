@@ -1,0 +1,758 @@
+// @retentionos/engine — the ONE service layer under the meta-schema (agent-parity law).
+// The web UI (via its REST API), n8n webhooks, and the future MCP server are all clients
+// of these functions. There is no second, UI-only path. Every function is tenant-scoped by
+// organizationId, and every record mutation writes an engine_record_revisions row so the
+// audit trail (human-vs-agent-vs-api) is complete without the caller remembering to.
+
+import { getPool, query, queryOne, slugify } from '@retentionos/db'
+import { coerceValue, coerceValues, isFieldType, validateFieldOptions } from './fieldTypes'
+import { EngineError } from './types'
+import type {
+  Actor,
+  EngineField,
+  EngineRecord,
+  EngineRecordRevision,
+  EngineTable,
+  EngineView,
+  FieldOptions,
+  FieldType,
+  FilterCondition,
+  RevisionDiff,
+  RevisionOp,
+  SortSpec,
+  TableDescriptor,
+  ViewConfig,
+  ViewType,
+} from './types'
+
+// ---------------------------------------------------------------------------
+// Column lists (kept in one place so selects stay consistent).
+// ---------------------------------------------------------------------------
+const TABLE_COLS = `
+  id, organization_id, name, slug, icon, description, position,
+  created_by_type, created_by_id, created_at, updated_at`
+const FIELD_COLS = `
+  id, table_id, name, type, options, position, required,
+  created_by_type, created_by_id, created_at, updated_at`
+const RECORD_COLS = `
+  id, table_id, organization_id, values, position,
+  created_by_type, created_by_id, created_at, updated_at`
+const VIEW_COLS = `
+  id, table_id, name, type, config, position, created_at, updated_at`
+const REVISION_COLS = `
+  id, record_id, table_id, organization_id, actor_type, actor_id, op, diff, created_at`
+
+// ---------------------------------------------------------------------------
+// Tables
+// ---------------------------------------------------------------------------
+
+export interface CreateTableInput {
+  name: string
+  slug?: string
+  icon?: string | null
+  description?: string | null
+}
+
+/** Ensure the slug is unique within the org, suffixing -2, -3, … if needed. */
+async function uniqueTableSlug(orgId: string, base: string): Promise<string> {
+  const root = slugify(base) || 'table'
+  let candidate = root
+  let n = 1
+  // Bounded loop: at worst a handful of collisions in practice.
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const clash = await queryOne<{ id: string }>(
+      'select id from public.engine_tables where organization_id = $1 and slug = $2',
+      [orgId, candidate],
+    )
+    if (!clash) return candidate
+    n += 1
+    candidate = `${root}-${n}`
+  }
+}
+
+export async function createTable(
+  orgId: string,
+  input: CreateTableInput,
+  actor: Actor,
+): Promise<EngineTable> {
+  if (!input.name?.trim()) throw new EngineError('Table name is required.', 'bad_input')
+  const slug = await uniqueTableSlug(orgId, input.slug ?? input.name)
+  const pos = await nextPosition('engine_tables', 'organization_id', orgId)
+  const row = await queryOne<EngineTable>(
+    `insert into public.engine_tables
+       (organization_id, name, slug, icon, description, position, created_by_type, created_by_id)
+     values ($1,$2,$3,$4,$5,$6,$7::public.engine_actor_type,$8)
+     returning ${TABLE_COLS}`,
+    [orgId, input.name.trim(), slug, input.icon ?? null, input.description ?? null, pos, actor.type, actor.id ?? null],
+  )
+  if (!row) throw new EngineError('Failed to create table.')
+  return row
+}
+
+export interface UpdateTablePatch {
+  name?: string
+  icon?: string | null
+  description?: string | null
+  position?: number
+}
+
+export async function updateTable(
+  orgId: string,
+  tableId: string,
+  patch: UpdateTablePatch,
+): Promise<EngineTable> {
+  const sets: string[] = []
+  const params: unknown[] = [orgId, tableId]
+  for (const [key, val] of Object.entries(patch)) {
+    if (val === undefined) continue
+    params.push(val)
+    sets.push(`${key} = $${params.length}`)
+  }
+  if (sets.length === 0) {
+    const existing = await getTable(orgId, tableId)
+    if (!existing) throw new EngineError('Table not found.', 'not_found')
+    return existing
+  }
+  const row = await queryOne<EngineTable>(
+    `update public.engine_tables set ${sets.join(', ')}
+     where organization_id = $1 and id = $2
+     returning ${TABLE_COLS}`,
+    params,
+  )
+  if (!row) throw new EngineError('Table not found.', 'not_found')
+  return row
+}
+
+export async function deleteTable(orgId: string, tableId: string): Promise<void> {
+  const res = await query<{ id: string }>(
+    'delete from public.engine_tables where organization_id = $1 and id = $2 returning id',
+    [orgId, tableId],
+  )
+  if (res.length === 0) throw new EngineError('Table not found.', 'not_found')
+}
+
+export async function listTables(orgId: string): Promise<EngineTable[]> {
+  return query<EngineTable>(
+    `select ${TABLE_COLS} from public.engine_tables
+     where organization_id = $1 order by position asc, created_at asc`,
+    [orgId],
+  )
+}
+
+export async function getTable(orgId: string, tableId: string): Promise<EngineTable | null> {
+  return queryOne<EngineTable>(
+    `select ${TABLE_COLS} from public.engine_tables where organization_id = $1 and id = $2`,
+    [orgId, tableId],
+  )
+}
+
+export async function getTableBySlug(orgId: string, slug: string): Promise<EngineTable | null> {
+  return queryOne<EngineTable>(
+    `select ${TABLE_COLS} from public.engine_tables where organization_id = $1 and slug = $2`,
+    [orgId, slug],
+  )
+}
+
+/** Table + its fields + its views — the full schema descriptor for one table. */
+export async function describeTable(orgId: string, tableId: string): Promise<TableDescriptor> {
+  const table = await getTable(orgId, tableId)
+  if (!table) throw new EngineError('Table not found.', 'not_found')
+  const [fields, views] = await Promise.all([listFields(orgId, tableId), listViews(orgId, tableId)])
+  return { table, fields, views }
+}
+
+// ---------------------------------------------------------------------------
+// Fields
+// ---------------------------------------------------------------------------
+
+export interface CreateFieldInput {
+  name: string
+  type: FieldType
+  options?: FieldOptions
+  required?: boolean
+  position?: number
+}
+
+/** Confirm a table belongs to the org (used before field/record/view ops). */
+async function assertTable(orgId: string, tableId: string): Promise<EngineTable> {
+  const t = await getTable(orgId, tableId)
+  if (!t) throw new EngineError('Table not found.', 'not_found')
+  return t
+}
+
+export async function createField(
+  orgId: string,
+  tableId: string,
+  input: CreateFieldInput,
+  actor: Actor,
+): Promise<EngineField> {
+  await assertTable(orgId, tableId)
+  if (!input.name?.trim()) throw new EngineError('Field name is required.', 'bad_input')
+  if (!isFieldType(input.type)) throw new EngineError(`Unknown field type "${input.type}".`, 'bad_type')
+  const options = validateFieldOptions(input.type, input.options)
+  const pos = input.position ?? (await nextPosition('engine_fields', 'table_id', tableId))
+  const row = await queryOne<EngineField>(
+    `insert into public.engine_fields
+       (table_id, name, type, options, position, required, created_by_type, created_by_id)
+     values ($1,$2,$3,$4::jsonb,$5,$6,$7::public.engine_actor_type,$8)
+     returning ${FIELD_COLS}`,
+    [
+      tableId,
+      input.name.trim(),
+      input.type,
+      JSON.stringify(options),
+      pos,
+      input.required ?? false,
+      actor.type,
+      actor.id ?? null,
+    ],
+  )
+  if (!row) throw new EngineError('Failed to create field.')
+  return row
+}
+
+export interface UpdateFieldPatch {
+  name?: string
+  options?: FieldOptions
+  required?: boolean
+  position?: number
+}
+
+export async function updateField(
+  orgId: string,
+  tableId: string,
+  fieldId: string,
+  patch: UpdateFieldPatch,
+): Promise<EngineField> {
+  const existing = await getField(orgId, tableId, fieldId)
+  if (!existing) throw new EngineError('Field not found.', 'not_found')
+
+  const sets: string[] = []
+  const params: unknown[] = [fieldId, tableId]
+  if (patch.name !== undefined) {
+    params.push(patch.name.trim())
+    sets.push(`name = $${params.length}`)
+  }
+  if (patch.required !== undefined) {
+    params.push(patch.required)
+    sets.push(`required = $${params.length}`)
+  }
+  if (patch.position !== undefined) {
+    params.push(patch.position)
+    sets.push(`position = $${params.length}`)
+  }
+  if (patch.options !== undefined) {
+    // Type is immutable in Phase A; validate the new options against the existing type.
+    const options = validateFieldOptions(existing.type, patch.options)
+    params.push(JSON.stringify(options))
+    sets.push(`options = $${params.length}::jsonb`)
+  }
+  if (sets.length === 0) return existing
+
+  const row = await queryOne<EngineField>(
+    `update public.engine_fields set ${sets.join(', ')}
+     where id = $1 and table_id = $2
+     returning ${FIELD_COLS}`,
+    params,
+  )
+  if (!row) throw new EngineError('Field not found.', 'not_found')
+  return row
+}
+
+export async function deleteField(orgId: string, tableId: string, fieldId: string): Promise<void> {
+  await assertTable(orgId, tableId)
+  const res = await query<{ id: string }>(
+    'delete from public.engine_fields where id = $1 and table_id = $2 returning id',
+    [fieldId, tableId],
+  )
+  if (res.length === 0) throw new EngineError('Field not found.', 'not_found')
+  // NOTE: existing record values keyed by this field id are left in place (harmless
+  // orphans); a Phase B cleanup could prune them. Renames are free because values key
+  // on field id, so we intentionally do not touch record data on field delete.
+}
+
+export async function listFields(orgId: string, tableId: string): Promise<EngineField[]> {
+  await assertTable(orgId, tableId)
+  return query<EngineField>(
+    `select ${FIELD_COLS} from public.engine_fields where table_id = $1
+     order by position asc, created_at asc`,
+    [tableId],
+  )
+}
+
+export async function getField(
+  orgId: string,
+  tableId: string,
+  fieldId: string,
+): Promise<EngineField | null> {
+  await assertTable(orgId, tableId)
+  return queryOne<EngineField>(
+    `select ${FIELD_COLS} from public.engine_fields where table_id = $1 and id = $2`,
+    [tableId, fieldId],
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Records (+ revisions)
+// ---------------------------------------------------------------------------
+
+/** Build a create-diff (every field: null -> value) for the revision log. */
+function createDiff(values: Record<string, unknown>): RevisionDiff {
+  const diff: RevisionDiff = {}
+  for (const [k, v] of Object.entries(values)) diff[k] = { from: null, to: v }
+  return diff
+}
+
+/** Build an update-diff by comparing old vs new values; only changed keys included. */
+function updateDiff(before: Record<string, unknown>, after: Record<string, unknown>): RevisionDiff {
+  const diff: RevisionDiff = {}
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)])
+  for (const k of keys) {
+    const from = before[k] ?? null
+    const to = after[k] ?? null
+    if (JSON.stringify(from) !== JSON.stringify(to)) diff[k] = { from, to }
+  }
+  return diff
+}
+
+/** Insert a revision row inside the given (transactional) client. */
+async function writeRevision(
+  client: { query: (t: string, p?: unknown[]) => Promise<unknown> },
+  input: {
+    recordId: string
+    tableId: string
+    orgId: string
+    actor: Actor
+    op: RevisionOp
+    diff: RevisionDiff
+  },
+): Promise<void> {
+  await client.query(
+    `insert into public.engine_record_revisions
+       (record_id, table_id, organization_id, actor_type, actor_id, op, diff)
+     values ($1,$2,$3,$4::public.engine_actor_type,$5,$6,$7::jsonb)`,
+    [
+      input.recordId,
+      input.tableId,
+      input.orgId,
+      input.actor.type,
+      input.actor.id ?? null,
+      input.op,
+      JSON.stringify(input.diff),
+    ],
+  )
+}
+
+export async function createRecord(
+  orgId: string,
+  tableId: string,
+  rawValues: Record<string, unknown>,
+  actor: Actor,
+): Promise<EngineRecord> {
+  await assertTable(orgId, tableId)
+  const fields = await listFields(orgId, tableId)
+
+  // Coerce provided values, then enforce required fields that were omitted entirely.
+  const values = coerceValues(fields, rawValues)
+  for (const f of fields) {
+    if (f.required && (values[f.id] === undefined || values[f.id] === null)) {
+      throw new EngineError(`Field "${f.name}" is required.`, 'required')
+    }
+  }
+
+  const pos = await nextPosition('engine_records', 'table_id', tableId)
+  const pool = getPool()
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    const res = await client.query(
+      `insert into public.engine_records
+         (table_id, organization_id, values, position, created_by_type, created_by_id)
+       values ($1,$2,$3::jsonb,$4,$5::public.engine_actor_type,$6)
+       returning ${RECORD_COLS}`,
+      [tableId, orgId, JSON.stringify(values), pos, actor.type, actor.id ?? null],
+    )
+    const record = res.rows[0] as EngineRecord
+    await writeRevision(client, {
+      recordId: record.id,
+      tableId,
+      orgId,
+      actor,
+      op: 'create',
+      diff: createDiff(values),
+    })
+    await client.query('commit')
+    return record
+  } catch (err) {
+    await client.query('rollback')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+export async function updateRecord(
+  orgId: string,
+  tableId: string,
+  recordId: string,
+  rawPatch: Record<string, unknown>,
+  actor: Actor,
+): Promise<EngineRecord> {
+  await assertTable(orgId, tableId)
+  const fields = await listFields(orgId, tableId)
+  const existing = await getRecord(orgId, tableId, recordId)
+  if (!existing) throw new EngineError('Record not found.', 'not_found')
+
+  const coerced = coerceValues(fields, rawPatch)
+  const before = existing.values
+  const after = { ...before, ...coerced }
+
+  // Enforce required on any field the patch tries to clear.
+  for (const f of fields) {
+    if (f.required && (after[f.id] === undefined || after[f.id] === null)) {
+      throw new EngineError(`Field "${f.name}" is required.`, 'required')
+    }
+  }
+
+  const diff = updateDiff(before, after)
+  const pool = getPool()
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    const res = await client.query(
+      `update public.engine_records set values = $3::jsonb
+       where organization_id = $1 and id = $2 and table_id = $4
+       returning ${RECORD_COLS}`,
+      [orgId, recordId, JSON.stringify(after), tableId],
+    )
+    const record = res.rows[0] as EngineRecord
+    // Only log a revision if something actually changed.
+    if (Object.keys(diff).length > 0) {
+      await writeRevision(client, { recordId, tableId, orgId, actor, op: 'update', diff })
+    }
+    await client.query('commit')
+    return record
+  } catch (err) {
+    await client.query('rollback')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+export async function deleteRecords(
+  orgId: string,
+  tableId: string,
+  recordIds: string[],
+  actor: Actor,
+): Promise<{ deleted: number }> {
+  await assertTable(orgId, tableId)
+  if (recordIds.length === 0) return { deleted: 0 }
+
+  const pool = getPool()
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    const found = await client.query(
+      `select ${RECORD_COLS} from public.engine_records
+       where organization_id = $1 and table_id = $2 and id = any($3::uuid[])`,
+      [orgId, tableId, recordIds],
+    )
+    const records = found.rows as EngineRecord[]
+    for (const r of records) {
+      const diff: RevisionDiff = {}
+      for (const [k, v] of Object.entries(r.values)) diff[k] = { from: v, to: null }
+      await writeRevision(client, { recordId: r.id, tableId, orgId, actor, op: 'delete', diff })
+    }
+    const del = await client.query(
+      'delete from public.engine_records where organization_id = $1 and table_id = $2 and id = any($3::uuid[]) returning id',
+      [orgId, tableId, recordIds],
+    )
+    await client.query('commit')
+    return { deleted: del.rowCount ?? 0 }
+  } catch (err) {
+    await client.query('rollback')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+export async function getRecord(
+  orgId: string,
+  tableId: string,
+  recordId: string,
+): Promise<EngineRecord | null> {
+  return queryOne<EngineRecord>(
+    `select ${RECORD_COLS} from public.engine_records
+     where organization_id = $1 and table_id = $2 and id = $3`,
+    [orgId, tableId, recordId],
+  )
+}
+
+export interface QueryRecordsOptions {
+  filters?: FilterCondition[]
+  sorts?: SortSpec[]
+  limit?: number
+  offset?: number
+}
+
+export interface QueryRecordsResult {
+  records: EngineRecord[]
+  total: number
+  limit: number
+  offset: number
+}
+
+/**
+ * Query records by field values with filter / sort / pagination. Filters and sorts
+ * operate on values ->> '<fieldId>' (jsonb). Numeric/date comparisons cast the text out
+ * of jsonb; string ops use ilike. This is deliberately simple for Phase A — good enough
+ * for the grid view and the API, extended in Phase B (linked/rollup filters).
+ */
+export async function queryRecords(
+  orgId: string,
+  tableId: string,
+  opts: QueryRecordsOptions = {},
+): Promise<QueryRecordsResult> {
+  await assertTable(orgId, tableId)
+  const fields = await listFields(orgId, tableId)
+  const byId = new Map(fields.map((f) => [f.id, f]))
+
+  const where: string[] = ['organization_id = $1', 'table_id = $2']
+  const params: unknown[] = [orgId, tableId]
+
+  for (const f of opts.filters ?? []) {
+    const field = byId.get(f.fieldId)
+    if (!field) throw new EngineError(`Unknown field id "${f.fieldId}" in filter.`, 'unknown_field')
+    const numeric = field.type === 'number' || field.type === 'currency'
+    const path = `(values ->> ${pushParam(params, f.fieldId)})`
+    const lhs = numeric ? `(${path})::numeric` : path
+    switch (f.op) {
+      case 'is_empty':
+        where.push(`(${path} is null or ${path} = '')`)
+        break
+      case 'is_not_empty':
+        where.push(`(${path} is not null and ${path} <> '')`)
+        break
+      case 'eq':
+        where.push(`${lhs} = ${castRhs(params, f.value, numeric)}`)
+        break
+      case 'neq':
+        where.push(`${lhs} is distinct from ${castRhs(params, f.value, numeric)}`)
+        break
+      case 'contains':
+        where.push(`${path} ilike ${pushParam(params, `%${String(f.value ?? '')}%`)}`)
+        break
+      case 'gt':
+        where.push(`${lhs} > ${castRhs(params, f.value, numeric)}`)
+        break
+      case 'gte':
+        where.push(`${lhs} >= ${castRhs(params, f.value, numeric)}`)
+        break
+      case 'lt':
+        where.push(`${lhs} < ${castRhs(params, f.value, numeric)}`)
+        break
+      case 'lte':
+        where.push(`${lhs} <= ${castRhs(params, f.value, numeric)}`)
+        break
+      default:
+        throw new EngineError(`Unsupported filter op "${String(f.op)}".`, 'bad_filter')
+    }
+  }
+
+  const whereSql = where.join(' and ')
+  // Snapshot the params that the WHERE clause references, before the sort loop and
+  // limit/offset push more onto the same array — the COUNT query uses only these.
+  const whereParams = [...params]
+
+  const orderParts: string[] = []
+  for (const s of opts.sorts ?? []) {
+    const field = byId.get(s.fieldId)
+    if (!field) throw new EngineError(`Unknown field id "${s.fieldId}" in sort.`, 'unknown_field')
+    const numeric = field.type === 'number' || field.type === 'currency'
+    const expr = numeric
+      ? `(values ->> ${pushParam(params, s.fieldId)})::numeric`
+      : `(values ->> ${pushParam(params, s.fieldId)})`
+    const dir = s.direction === 'desc' ? 'desc' : 'asc'
+    orderParts.push(`${expr} ${dir} nulls last`)
+  }
+  orderParts.push('created_at asc')
+  const orderSql = orderParts.join(', ')
+
+  const totalRow = await queryOne<{ count: string }>(
+    `select count(*)::int as count from public.engine_records where ${whereSql}`,
+    whereParams,
+  )
+  const total = totalRow ? Number(totalRow.count) : 0
+
+  const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500)
+  const offset = Math.max(opts.offset ?? 0, 0)
+  params.push(limit)
+  const limitP = `$${params.length}`
+  params.push(offset)
+  const offsetP = `$${params.length}`
+
+  const records = await query<EngineRecord>(
+    `select ${RECORD_COLS} from public.engine_records
+     where ${whereSql} order by ${orderSql} limit ${limitP} offset ${offsetP}`,
+    params,
+  )
+  return { records, total, limit, offset }
+}
+
+function pushParam(params: unknown[], value: unknown): string {
+  params.push(value)
+  return `$${params.length}`
+}
+
+function castRhs(params: unknown[], value: unknown, numeric: boolean): string {
+  if (numeric) {
+    params.push(Number(value))
+    return `$${params.length}::numeric`
+  }
+  params.push(value === null || value === undefined ? '' : String(value))
+  return `$${params.length}`
+}
+
+// ---------------------------------------------------------------------------
+// Views
+// ---------------------------------------------------------------------------
+
+export interface CreateViewInput {
+  name: string
+  type?: ViewType
+  config?: ViewConfig
+  position?: number
+}
+
+export async function createView(
+  orgId: string,
+  tableId: string,
+  input: CreateViewInput,
+): Promise<EngineView> {
+  await assertTable(orgId, tableId)
+  if (!input.name?.trim()) throw new EngineError('View name is required.', 'bad_input')
+  const type: ViewType = input.type ?? 'grid'
+  if (type !== 'grid' && type !== 'kanban') throw new EngineError(`Unknown view type "${type}".`, 'bad_type')
+  const pos = input.position ?? (await nextPosition('engine_views', 'table_id', tableId))
+  const row = await queryOne<EngineView>(
+    `insert into public.engine_views (table_id, name, type, config, position)
+     values ($1,$2,$3,$4::jsonb,$5)
+     returning ${VIEW_COLS}`,
+    [tableId, input.name.trim(), type, JSON.stringify(input.config ?? {}), pos],
+  )
+  if (!row) throw new EngineError('Failed to create view.')
+  return row
+}
+
+export interface UpdateViewPatch {
+  name?: string
+  type?: ViewType
+  config?: ViewConfig
+  position?: number
+}
+
+export async function updateView(
+  orgId: string,
+  tableId: string,
+  viewId: string,
+  patch: UpdateViewPatch,
+): Promise<EngineView> {
+  await assertTable(orgId, tableId)
+  const sets: string[] = []
+  const params: unknown[] = [viewId, tableId]
+  if (patch.name !== undefined) {
+    params.push(patch.name.trim())
+    sets.push(`name = $${params.length}`)
+  }
+  if (patch.type !== undefined) {
+    params.push(patch.type)
+    sets.push(`type = $${params.length}`)
+  }
+  if (patch.position !== undefined) {
+    params.push(patch.position)
+    sets.push(`position = $${params.length}`)
+  }
+  if (patch.config !== undefined) {
+    params.push(JSON.stringify(patch.config))
+    sets.push(`config = $${params.length}::jsonb`)
+  }
+  if (sets.length === 0) {
+    const existing = await getView(orgId, tableId, viewId)
+    if (!existing) throw new EngineError('View not found.', 'not_found')
+    return existing
+  }
+  const row = await queryOne<EngineView>(
+    `update public.engine_views set ${sets.join(', ')}
+     where id = $1 and table_id = $2 returning ${VIEW_COLS}`,
+    params,
+  )
+  if (!row) throw new EngineError('View not found.', 'not_found')
+  return row
+}
+
+export async function deleteView(orgId: string, tableId: string, viewId: string): Promise<void> {
+  await assertTable(orgId, tableId)
+  const res = await query<{ id: string }>(
+    'delete from public.engine_views where id = $1 and table_id = $2 returning id',
+    [viewId, tableId],
+  )
+  if (res.length === 0) throw new EngineError('View not found.', 'not_found')
+}
+
+export async function listViews(orgId: string, tableId: string): Promise<EngineView[]> {
+  await assertTable(orgId, tableId)
+  return query<EngineView>(
+    `select ${VIEW_COLS} from public.engine_views where table_id = $1
+     order by position asc, created_at asc`,
+    [tableId],
+  )
+}
+
+export async function getView(
+  orgId: string,
+  tableId: string,
+  viewId: string,
+): Promise<EngineView | null> {
+  await assertTable(orgId, tableId)
+  return queryOne<EngineView>(
+    `select ${VIEW_COLS} from public.engine_views where table_id = $1 and id = $2`,
+    [tableId, viewId],
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Revisions (audit trail reads — the UI history panel lands in Phase C)
+// ---------------------------------------------------------------------------
+
+export async function listRecordRevisions(
+  orgId: string,
+  recordId: string,
+  limit = 100,
+): Promise<EngineRecordRevision[]> {
+  return query<EngineRecordRevision>(
+    `select ${REVISION_COLS} from public.engine_record_revisions
+     where organization_id = $1 and record_id = $2
+     order by created_at desc limit $3`,
+    [orgId, recordId, limit],
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Next append position = max(position)+1 within a parent scope. */
+async function nextPosition(
+  table: 'engine_tables' | 'engine_fields' | 'engine_records' | 'engine_views',
+  scopeCol: 'organization_id' | 'table_id',
+  scopeVal: string,
+): Promise<number> {
+  const row = await queryOne<{ max: number | null }>(
+    `select max(position) as max from public.${table} where ${scopeCol} = $1`,
+    [scopeVal],
+  )
+  return (row?.max ?? -1) + 1
+}
