@@ -52,7 +52,9 @@ async function main() {
     SEED_ACTOR,
   )
 
-  const nameF = await createField(orgId, table.id, { name: 'Task', type: 'text', required: true }, SEED_ACTOR)
+  // Not marked required: the grid's "+ Add row" creates an empty record, which a required
+  // field would reject. Required-field validation is exercised by tests + the API instead.
+  const nameF = await createField(orgId, table.id, { name: 'Task', type: 'text' }, SEED_ACTOR)
   const notesF = await createField(orgId, table.id, { name: 'Notes', type: 'long_text' }, SEED_ACTOR)
   const statusF = await createField(
     orgId,
