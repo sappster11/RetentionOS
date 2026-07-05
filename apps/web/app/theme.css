@@ -5,6 +5,7 @@
   --bg-subtle: #f7f7f8;
   --bg-hover: #f2f2f3;
   --bg-sidebar: #fbfbfc;
+  --bg-tabs: #f4f4f6;
   --border: #e5e6e8;
   --border-strong: #d4d5d8;
   --text: #1a1a1c;
@@ -12,10 +13,17 @@
   --text-faint: #9a9aa0;
   --accent: #2b6cb0;
   --accent-soft: #e8f0f9;
+  --selected: #e4effb;
   --danger: #c53030;
   --radius: 6px;
-  --sidebar-w: 240px;
+  --views-w: 260px;
   --chat-w: 320px;
+  --header-h: 44px;
+  --tabs-h: 38px;
+  --toolbar-h: 42px;
+  --row-h: 32px;
+  --rownum-w: 56px;
+  --col-w: 200px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
   --fs: 13px;

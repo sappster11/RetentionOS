@@ -7,8 +7,11 @@ import type {
   EngineView,
   FieldOptions,
   FieldType,
+  FilterCondition,
   QueryRecordsResult,
+  SortSpec,
   TableDescriptor,
+  ViewConfig,
 } from '@retentionos/engine'
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -49,10 +52,20 @@ export const api = {
   deleteField: (tableId: string, fieldId: string) =>
     req<{ ok: true }>(`/api/v1/tables/${tableId}/fields/${fieldId}`, { method: 'DELETE' }),
 
-  queryRecords: (tableId: string, params?: { limit?: number; offset?: number }) => {
+  queryRecords: (
+    tableId: string,
+    params?: { limit?: number; offset?: number; sorts?: SortSpec[]; filters?: FilterCondition[] },
+  ) => {
     const q = new URLSearchParams()
     if (params?.limit) q.set('limit', String(params.limit))
     if (params?.offset) q.set('offset', String(params.offset))
+    // Sort/filter wire format matches the records route: <fieldId>:asc|desc and
+    // <fieldId>:<op>[:<value>]. Repeatable params.
+    for (const s of params?.sorts ?? []) q.append('sort', `${s.fieldId}:${s.direction}`)
+    for (const f of params?.filters ?? []) {
+      const noValue = f.op === 'is_empty' || f.op === 'is_not_empty'
+      q.append('filter', noValue ? `${f.fieldId}:${f.op}` : `${f.fieldId}:${f.op}:${String(f.value ?? '')}`)
+    }
     const qs = q.toString()
     return req<QueryRecordsResult>(`/api/v1/tables/${tableId}/records${qs ? `?${qs}` : ''}`)
   },
@@ -74,6 +87,27 @@ export const api = {
       method: 'DELETE',
     }),
 
+  bulkDeleteRecords: (tableId: string, recordIds: string[]) =>
+    req<{ deleted: number }>(`/api/v1/tables/${tableId}/records/bulk-delete`, {
+      method: 'POST',
+      body: JSON.stringify({ recordIds }),
+    }),
+
   listViews: (tableId: string) =>
     req<{ views: EngineView[] }>(`/api/v1/tables/${tableId}/views`).then((r) => r.views),
+
+  createView: (tableId: string, body: { name: string; type?: 'grid' | 'kanban'; config?: ViewConfig }) =>
+    req<{ view: EngineView }>(`/api/v1/tables/${tableId}/views`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }).then((r) => r.view),
+
+  updateView: (tableId: string, viewId: string, patch: { name?: string; config?: ViewConfig }) =>
+    req<{ view: EngineView }>(`/api/v1/tables/${tableId}/views/${viewId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }).then((r) => r.view),
+
+  deleteView: (tableId: string, viewId: string) =>
+    req<{ ok: true }>(`/api/v1/tables/${tableId}/views/${viewId}`, { method: 'DELETE' }),
 }
