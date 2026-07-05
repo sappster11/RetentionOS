@@ -58,6 +58,14 @@ describe('tables', () => {
     expect(all.map((t) => t.id)).toContain(t1.id)
   })
 
+  it('updateTable ignores keys outside the typed patch (column whitelist)', async () => {
+    const t = await createTable(orgId, { name: 'Whitelist Me' }, A)
+    const bogusPatch = { name: 'Renamed Safely', organization_id: 'evil' } as any
+    const updated = await updateTable(orgId, t.id, bogusPatch)
+    expect(updated.name).toBe('Renamed Safely')
+    expect(updated.organization_id).toBe(orgId)
+  })
+
   it('describeTable returns fields and views', async () => {
     const t = await createTable(orgId, { name: 'Described' }, A)
     await createField(orgId, t.id, { name: 'Title', type: 'text' }, A)
@@ -288,6 +296,21 @@ describe('queryRecords — filter / sort / pagination', () => {
     expect(page.limit).toBe(2)
     expect(page.offset).toBe(1)
     expect(page.records.map((r) => r.values[scoreF.id])).toEqual([30, 20])
+  })
+
+  it('rejects non-finite limit/offset with a validation EngineError', async () => {
+    const table = await createTable(orgId, { name: 'Query Bad Paging' }, A)
+    await expect(queryRecords(orgId, table.id, { limit: NaN })).rejects.toThrow(EngineError)
+    await expect(queryRecords(orgId, table.id, { offset: NaN })).rejects.toThrow(EngineError)
+  })
+
+  it('clamps limit=0 up to the minimum of 1 (existing clamp behavior)', async () => {
+    const table = await createTable(orgId, { name: 'Query Zero Limit' }, A)
+    const nameF = await createField(orgId, table.id, { name: 'Name', type: 'text' }, A)
+    await createRecord(orgId, table.id, { [nameF.id]: 'only' }, A)
+    const result = await queryRecords(orgId, table.id, { limit: 0 })
+    expect(result.limit).toBe(1)
+    expect(result.records).toHaveLength(1)
   })
 })
 

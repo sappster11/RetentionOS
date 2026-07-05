@@ -100,7 +100,15 @@ export function Cell({
   if (field.type === 'date' || field.type === 'datetime') {
     const isDate = field.type === 'date'
     const raw = typeof value === 'string' ? value : ''
-    const inputVal = isDate ? raw.slice(0, 10) : raw ? new Date(raw).toISOString().slice(0, 16) : ''
+    let datetimeVal = ''
+    if (!isDate && raw) {
+      const d = new Date(raw)
+      const pad = (n: number) => String(n).padStart(2, '0')
+      datetimeVal = isNaN(d.getTime())
+        ? ''
+        : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    }
+    const inputVal = isDate ? raw.slice(0, 10) : datetimeVal
     return (
       <input
         type={isDate ? 'date' : 'datetime-local'}

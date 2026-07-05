@@ -104,10 +104,21 @@ export async function updateTable(
 ): Promise<EngineTable> {
   const sets: string[] = []
   const params: unknown[] = [orgId, tableId]
-  for (const [key, val] of Object.entries(patch)) {
-    if (val === undefined) continue
-    params.push(val)
-    sets.push(`${key} = $${params.length}`)
+  if (patch.name !== undefined) {
+    params.push(patch.name)
+    sets.push(`name = $${params.length}`)
+  }
+  if (patch.icon !== undefined) {
+    params.push(patch.icon)
+    sets.push(`icon = $${params.length}`)
+  }
+  if (patch.description !== undefined) {
+    params.push(patch.description)
+    sets.push(`description = $${params.length}`)
+  }
+  if (patch.position !== undefined) {
+    params.push(patch.position)
+    sets.push(`position = $${params.length}`)
   }
   if (sets.length === 0) {
     const existing = await getTable(orgId, tableId)
@@ -587,6 +598,12 @@ export async function queryRecords(
   )
   const total = totalRow ? Number(totalRow.count) : 0
 
+  if (opts.limit !== undefined && !Number.isFinite(opts.limit)) {
+    throw new EngineError(`Invalid limit "${String(opts.limit)}".`, 'bad_input')
+  }
+  if (opts.offset !== undefined && !Number.isFinite(opts.offset)) {
+    throw new EngineError(`Invalid offset "${String(opts.offset)}".`, 'bad_input')
+  }
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500)
   const offset = Math.max(opts.offset ?? 0, 0)
   params.push(limit)

@@ -1,6 +1,16 @@
-import { createRecord, queryRecords } from '@retentionos/engine'
+import { createRecord, queryRecords, EngineError } from '@retentionos/engine'
 import type { FilterCondition, SortSpec } from '@retentionos/engine'
 import { API_ACTOR, errorResponse, json, readJson, resolveOrgId } from '@/lib/api'
+
+/** Parse a `limit`/`offset` query param: absent -> undefined, present -> finite integer >= 0 or throw. */
+function parseNonNegativeInt(raw: string | null, paramName: string): number | undefined {
+  if (raw === null) return undefined
+  const n = Number(raw)
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+    throw new EngineError(`Query param "${paramName}" must be a non-negative integer.`, 'bad_input')
+  }
+  return n
+}
 
 type Params = { params: Promise<{ tableId: string }> }
 
@@ -30,14 +40,14 @@ export async function GET(request: Request, { params }: Params) {
       }
     })
 
-    const limitRaw = url.searchParams.get('limit')
-    const offsetRaw = url.searchParams.get('offset')
+    const limit = parseNonNegativeInt(url.searchParams.get('limit'), 'limit')
+    const offset = parseNonNegativeInt(url.searchParams.get('offset'), 'offset')
 
     const result = await queryRecords(orgId, tableId, {
       filters: filters.length ? filters : undefined,
       sorts: sorts.length ? sorts : undefined,
-      limit: limitRaw ? Number(limitRaw) : undefined,
-      offset: offsetRaw ? Number(offsetRaw) : undefined,
+      limit,
+      offset,
     })
     return json(result)
   } catch (err) {
