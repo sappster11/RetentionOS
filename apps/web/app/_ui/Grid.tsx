@@ -13,10 +13,10 @@
 //  - Pinned footer: "+ Add" (left) and "{total} records" (right).
 //  - Search: rows/cells matching the query are highlighted; the grid scrolls to the first.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { EngineField, EngineRecord, EngineTable, FieldOptions, FieldType } from '@retentionos/engine'
+import type { EngineField, EngineTable, EnrichedRecord, FieldOptions, FieldType } from '@retentionos/engine'
 import { Cell } from './Cell'
 import { AddFieldPopover } from './AddFieldPopover'
-import { FieldIcon, PlusIcon, TrashIcon } from './icons'
+import { ExpandIcon, FieldIcon, PlusIcon, TrashIcon } from './icons'
 
 const ROWNUM_W = 56
 const COL_W = 200
@@ -31,16 +31,18 @@ export function Grid({
   onAddRow,
   onBulkDelete,
   onAddField,
+  onExpandRecord,
 }: {
   table: EngineTable
   fields: EngineField[]
-  records: EngineRecord[]
+  records: EnrichedRecord[]
   total: number
   search: string
-  onCommitCell: (record: EngineRecord, field: EngineField, raw: unknown) => void
+  onCommitCell: (record: EnrichedRecord, field: EngineField, raw: unknown) => void
   onAddRow: () => void
   onBulkDelete: (ids: string[]) => void
   onAddField: (input: { name: string; type: FieldType; options?: FieldOptions; required?: boolean }) => Promise<void>
+  onExpandRecord: (record: EnrichedRecord) => void
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [addFieldOpen, setAddFieldOpen] = useState(false)
@@ -62,7 +64,7 @@ export function Grid({
   const q = search.trim().toLowerCase()
   const matchRow = useMemo(() => {
     if (!q) return () => false
-    return (rec: EngineRecord) =>
+    return (rec: EnrichedRecord) =>
       Object.values(rec.values).some((v) => v != null && String(v).toLowerCase().includes(q))
   }, [q])
 
@@ -157,6 +159,8 @@ export function Grid({
                 </button>
                 {addFieldOpen ? (
                   <AddFieldPopover
+                    tableId={table.id}
+                    fields={fields}
                     onClose={() => setAddFieldOpen(false)}
                     onCreate={async (input) => {
                       await onAddField(input)
@@ -188,14 +192,26 @@ export function Grid({
                     <span className="row-num" style={{ color: 'var(--text-faint)' }}>
                       {ri + 1}
                     </span>
-                    <input
-                      className="row-check"
-                      type="checkbox"
-                      checked={isSel}
-                      onChange={() => toggleOne(rec.id)}
-                      aria-label={`Select row ${ri + 1}`}
-                      style={{ display: isSel ? 'inline-block' : 'none' }}
-                    />
+                    <span className="row-actions" style={{ display: isSel ? 'inline-flex' : 'none', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
+                      <input
+                        className="row-check"
+                        type="checkbox"
+                        checked={isSel}
+                        onChange={() => toggleOne(rec.id)}
+                        aria-label={`Select row ${ri + 1}`}
+                      />
+                      <button
+                        className="row-expand"
+                        title="Expand record"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onExpandRecord(rec)
+                        }}
+                        style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', padding: 0, cursor: 'pointer', display: 'inline-flex' }}
+                      >
+                        <ExpandIcon size={13} />
+                      </button>
+                    </span>
                   </td>
                   {fields.map((f, ci) => {
                     const frozen = ci === 0
@@ -225,12 +241,14 @@ export function Grid({
                         <Cell
                           field={f}
                           value={rec.values[f.id]}
+                          display={rec.display?.[f.id]}
                           focused={focused}
                           onCommit={(raw) => onCommitCell(rec, f, raw)}
                           onNavigate={(dir) => {
                             if (dir === 'down') move(ri, ci, 1, 0)
                             else if (dir === 'right') move(ri, ci, 0, 1)
                           }}
+                          onExpand={() => onExpandRecord(rec)}
                         />
                       </td>
                     )
@@ -338,7 +356,7 @@ export function Grid({
         tr.grid-row:hover td { background: var(--bg-subtle) !important; }
         tr.grid-row[data-selected="true"]:hover td { background: var(--selected) !important; }
         tr.grid-row:hover .row-num { display: none; }
-        tr.grid-row:hover .row-check { display: inline-block !important; }
+        tr.grid-row:hover .row-actions { display: inline-flex !important; }
       `}</style>
     </div>
   )

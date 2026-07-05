@@ -43,7 +43,7 @@ Later    forms, wired in-app agent, automations, analytics backbone, multi-user
 
 - [x] Course-correction plan written (docs/08)
 - [x] Phase A — Engine core *(+ Airtable-parity grid polish)*
-- [ ] Phase B — Relations & views
+- [x] Phase B — Relations & views *(linked records, lookups, rollups, Kanban, record detail panel)*
 - [ ] Phase C — Agent surface
 - [ ] Phase D — Roam CRM as configuration
 

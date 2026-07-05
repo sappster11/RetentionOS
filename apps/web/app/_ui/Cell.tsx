@@ -4,7 +4,7 @@
 // blur / Enter commits (calls onCommit with the raw value the engine will coerce), Escape
 // cancels. Selects, checkboxes, and dates get type-appropriate controls.
 import { useEffect, useRef, useState } from 'react'
-import type { EngineField, SelectChoice } from '@retentionos/engine'
+import type { Attachment, EngineField, LinkedRecordRef, SelectChoice } from '@retentionos/engine'
 
 // Airtable-ish "Light2" pastels — soft fills with a legible dark text tone. Extra names
 // (teal/pink/cyan) map to Airtable's tealLight2 / pinkLight2 / cyanLight2 equivalents.
@@ -51,19 +51,78 @@ type NavDir = 'down' | 'right'
 export function Cell({
   field,
   value,
+  display,
   onCommit,
   focused,
   onNavigate,
+  onExpand,
 }: {
   field: EngineField
   value: unknown
+  display?: unknown
   onCommit: (raw: unknown) => void
   focused?: boolean
   onNavigate?: (dir: NavDir) => void
+  onExpand?: () => void
 }) {
   const [editing, setEditing] = useState(false)
   const choices: SelectChoice[] = field.options.choices ?? []
   const choiceById = new Map(choices.map((c) => [c.id, c]))
+
+  // --- Phase B read-only + relation renderers --------------------------------
+  if (field.type === 'linked_record') {
+    const refs = Array.isArray(display) ? (display as LinkedRecordRef[]) : []
+    return (
+      <div
+        onClick={() => onExpand?.()}
+        title="Open record to edit links"
+        style={{ display: 'flex', gap: 4, alignItems: 'center', padding: cellPad, height: 'var(--row-h)', overflow: 'hidden', cursor: 'pointer' }}
+      >
+        {refs.length === 0 ? (
+          <span style={{ color: 'var(--text-faint)' }} />
+        ) : (
+          refs.map((r) => (
+            <span key={r.id} style={{ ...chipStyle('blue'), display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              {r.label}
+            </span>
+          ))
+        )}
+      </div>
+    )
+  }
+
+  if (field.type === 'attachment') {
+    const atts = Array.isArray(value) ? (value as Attachment[]) : []
+    return <AttachmentCell field={field} attachments={atts} onCommit={onCommit} />
+  }
+
+  if (field.type === 'lookup' || field.type === 'rollup') {
+    const d = display
+    let text = ''
+    if (Array.isArray(d)) text = d.map((v) => (v == null ? '' : String(v))).join(', ')
+    else if (d != null) text = String(d)
+    return (
+      <div style={{ padding: cellPad, height: 'var(--row-h)', display: 'flex', alignItems: 'center', color: 'var(--text-muted)', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {text}
+      </div>
+    )
+  }
+
+  if (field.type === 'autonumber' || field.type === 'created_time' || field.type === 'last_modified_time') {
+    const d = display ?? value
+    let text = ''
+    if (d != null && d !== '') {
+      text =
+        field.type === 'autonumber'
+          ? String(d)
+          : new Date(String(d)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    }
+    return (
+      <div style={{ padding: cellPad, height: 'var(--row-h)', display: 'flex', alignItems: 'center', justifyContent: field.type === 'autonumber' ? 'flex-end' : 'flex-start', color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {text}
+      </div>
+    )
+  }
 
   // Non-text controls render inline (no click-to-edit dance).
   if (field.type === 'checkbox') {
@@ -162,10 +221,10 @@ export function Cell({
     )
   }
 
-  let display: React.ReactNode = value == null || value === '' ? '' : String(value)
-  if (field.type === 'currency' && value != null && value !== '') display = fmtCurrency(value, field)
+  let rendered: React.ReactNode = value == null || value === '' ? '' : String(value)
+  if (field.type === 'currency' && value != null && value !== '') rendered = fmtCurrency(value, field)
   if (field.type === 'url' && typeof value === 'string' && value) {
-    display = (
+    rendered = (
       <a
         href={value}
         target="_blank"
@@ -220,7 +279,7 @@ export function Cell({
         outline: 'none',
       }}
     >
-      {display}
+      {rendered}
     </div>
   )
 }
@@ -343,6 +402,108 @@ function MultiSelectCell({
       ) : null}
     </div>
   )
+}
+
+function AttachmentCell({
+  field,
+  attachments,
+  onCommit,
+}: {
+  field: EngineField
+  attachments: Attachment[]
+  onCommit: (raw: unknown) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [url, setUrl] = useState('')
+  const [name, setName] = useState('')
+
+  function add() {
+    const u = url.trim()
+    if (!u) return
+    onCommit([...attachments, { url: u, ...(name.trim() ? { name: name.trim() } : {}) }])
+    setUrl('')
+    setName('')
+  }
+  function remove(i: number) {
+    onCommit(attachments.filter((_, j) => j !== i))
+  }
+
+  function isImage(u: string) {
+    return /\.(png|jpe?g|gif|webp|svg|avif)(\?|$)/i.test(u)
+  }
+  function favicon(u: string) {
+    try {
+      return `${new URL(u).origin}/favicon.ico`
+    } catch {
+      return ''
+    }
+  }
+
+  return (
+    <div style={{ position: 'relative', padding: cellPad, height: 'var(--row-h)', display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden' }}>
+      <div onClick={() => setOpen((v) => !v)} style={{ display: 'flex', gap: 4, cursor: 'pointer', overflow: 'hidden', flex: 1 }}>
+        {attachments.map((a, i) => (
+          <span key={i} style={{ ...chipStyle('gray'), display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <img
+              src={isImage(a.url) ? a.url : favicon(a.url)}
+              alt=""
+              width={12}
+              height={12}
+              style={{ borderRadius: 2, objectFit: 'cover' }}
+              onError={(e) => ((e.currentTarget as HTMLImageElement).style.visibility = 'hidden')}
+            />
+            {a.name ?? a.url.split('/').pop() ?? 'file'}
+          </span>
+        ))}
+      </div>
+      {open ? (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            zIndex: 20,
+            background: 'var(--bg)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 'var(--radius)',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.14)',
+            padding: 8,
+            minWidth: 240,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+          }}
+        >
+          {attachments.map((a, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <a href={a.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {a.name ?? a.url}
+              </a>
+              <button onClick={() => remove(i)} style={{ border: 'none', background: 'transparent', color: 'var(--danger)', cursor: 'pointer' }}>
+                ×
+              </button>
+            </div>
+          ))}
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Paste a URL" style={miniInput} />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (optional)" style={miniInput} />
+          <button onClick={add} style={{ border: 'none', background: 'var(--accent)', color: '#fff', borderRadius: 4, padding: '4px 8px', cursor: 'pointer' }}>
+            Add
+          </button>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+const miniInput: React.CSSProperties = {
+  padding: '5px 7px',
+  border: '1px solid var(--border-strong)',
+  borderRadius: 6,
+  background: 'var(--bg)',
+  color: 'var(--text)',
+  outline: 'none',
+  fontSize: 12,
 }
 
 export { CHOICE_COLORS, chipStyle }
