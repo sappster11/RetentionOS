@@ -5,15 +5,14 @@
 // then Group / Color / row-height (DISABLED with a "soon" tooltip), then search (client
 // side highlight/jump within loaded records).
 import { useEffect, useRef, useState } from 'react'
-import type { EngineField, FilterCondition, SortSpec } from '@retentionos/engine'
-import { FIELD_TYPE_LABELS } from './AddFieldPopover'
+import type { EngineField, FilterCondition, SortSpec, ViewType } from '@retentionos/engine'
 import {
-  ChevronDownIcon,
   ColorIcon,
   EyeOffIcon,
   FilterIcon,
   GridIcon,
   GroupIcon,
+  KanbanIcon,
   RowHeightIcon,
   SearchIcon,
   SidebarIcon,
@@ -37,6 +36,7 @@ const FILTER_OPS: { op: FilterCondition['op']; label: string; noValue?: boolean 
 
 export function Toolbar({
   viewName,
+  viewType,
   viewsOpen,
   onToggleViews,
   fields,
@@ -51,6 +51,7 @@ export function Toolbar({
   hasActiveView,
 }: {
   viewName: string
+  viewType: ViewType
   viewsOpen: boolean
   onToggleViews: () => void
   fields: EngineField[]
@@ -98,7 +99,7 @@ export function Toolbar({
         <SidebarIcon size={15} />
       </TbBtn>
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 13, padding: '0 6px' }}>
-        <GridIcon size={15} />
+        {viewType === 'kanban' ? <KanbanIcon size={15} /> : <GridIcon size={15} />}
         {viewName}
       </span>
 

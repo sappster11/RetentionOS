@@ -4,8 +4,8 @@
 // (createRecord/updateRecord, UI, API, future MCP) goes through here — there is no
 // second, looser validator anywhere.
 
-import { EngineError, FIELD_TYPES } from './types'
-import type { EngineField, FieldOptions, FieldType, SelectChoice } from './types'
+import { EngineError, FIELD_TYPES, isComputedType } from './types'
+import type { Attachment, EngineField, FieldOptions, FieldType, SelectChoice } from './types'
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -43,6 +43,36 @@ export function validateFieldOptions(type: FieldType, options: FieldOptions | un
         color: typeof c.color === 'string' && c.color ? c.color : 'gray',
       })) as SelectChoice[],
     }
+  }
+  if (type === 'linked_record') {
+    if (typeof opts.linkedTableId !== 'string' || !opts.linkedTableId) {
+      throw new EngineError('A linked record field requires options.linkedTableId.', 'bad_options')
+    }
+    // inverseFieldId is filled in by the engine when it creates the paired inverse field.
+    return opts
+  }
+  if (type === 'lookup') {
+    if (typeof opts.recordLinkFieldId !== 'string' || !opts.recordLinkFieldId) {
+      throw new EngineError('A lookup field requires options.recordLinkFieldId.', 'bad_options')
+    }
+    if (typeof opts.targetFieldId !== 'string' || !opts.targetFieldId) {
+      throw new EngineError('A lookup field requires options.targetFieldId.', 'bad_options')
+    }
+    return opts
+  }
+  if (type === 'rollup') {
+    if (typeof opts.recordLinkFieldId !== 'string' || !opts.recordLinkFieldId) {
+      throw new EngineError('A rollup field requires options.recordLinkFieldId.', 'bad_options')
+    }
+    const AGGS = ['count', 'sum', 'avg', 'min', 'max', 'concat']
+    if (typeof opts.aggregate !== 'string' || !AGGS.includes(opts.aggregate)) {
+      throw new EngineError(`A rollup field requires options.aggregate to be one of ${AGGS.join(', ')}.`, 'bad_options')
+    }
+    // targetFieldId is optional only for count.
+    if (opts.aggregate !== 'count' && (typeof opts.targetFieldId !== 'string' || !opts.targetFieldId)) {
+      throw new EngineError(`A "${opts.aggregate}" rollup requires options.targetFieldId.`, 'bad_options')
+    }
+    return opts
   }
   return opts
 }
@@ -158,6 +188,55 @@ export function coerceValue(field: EngineField, raw: unknown): unknown {
       return [...new Set(raw)]
     }
 
+    case 'attachment': {
+      if (!Array.isArray(raw)) {
+        throw new EngineError(`Field "${field.name}" expects an array of attachments.`, 'bad_value')
+      }
+      const out: Attachment[] = []
+      for (const item of raw) {
+        if (!isPlainObject(item) || typeof item.url !== 'string' || !item.url) {
+          throw new EngineError(`Field "${field.name}": each attachment needs a url string.`, 'bad_value')
+        }
+        try {
+          // eslint-disable-next-line no-new
+          new URL(item.url)
+        } catch {
+          throw new EngineError(`Field "${field.name}": "${item.url}" is not a valid URL.`, 'bad_value')
+        }
+        out.push({ url: item.url, ...(typeof item.name === 'string' && item.name ? { name: item.name } : {}) })
+      }
+      return out
+    }
+
+    case 'linked_record': {
+      // Value is an array of target record ids. Existence / same-org / same-table checks
+      // happen in the engine's write path (needs a DB round-trip); here we only shape it.
+      if (!Array.isArray(raw)) {
+        throw new EngineError(`Field "${field.name}" expects an array of record ids.`, 'bad_value')
+      }
+      const ids: string[] = []
+      for (const v of raw) {
+        if (typeof v !== 'string' || !v) {
+          throw new EngineError(`Field "${field.name}": link targets must be record ids.`, 'bad_value')
+        }
+        if (!ids.includes(v)) ids.push(v)
+      }
+      return ids
+    }
+
+    case 'lookup':
+    case 'rollup':
+    case 'autonumber':
+    case 'created_time':
+    case 'last_modified_time': {
+      // Computed fields are never written directly. `empty` values were already returned
+      // as null above, so reaching here means the caller sent a real value — reject it.
+      throw new EngineError(
+        `Field "${field.name}" is a computed ${field.type} field and cannot be set directly.`,
+        'bad_value',
+      )
+    }
+
     default: {
       // Exhaustiveness guard — a new FieldType must add a case above.
       const _never: never = field.type
@@ -181,6 +260,14 @@ export function coerceValues(
     const field = byId.get(fieldId)
     if (!field) {
       throw new EngineError(`Unknown field id "${fieldId}" for this table.`, 'unknown_field')
+    }
+    if (isComputedType(field.type)) {
+      // Computed fields (lookup/rollup/autonumber/created_time/last_modified_time) are
+      // read-only — reject any attempt to write them, even null, rather than silently drop.
+      throw new EngineError(
+        `Field "${field.name}" is a computed ${field.type} field and cannot be set directly.`,
+        'bad_value',
+      )
     }
     out[fieldId] = coerceValue(field, raw)
   }

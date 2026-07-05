@@ -102,6 +102,48 @@ const FIELD_ICONS: Record<FieldType, React.ReactNode> = {
       <polyline points="3 7 12 13 21 7" />
     </>
   ),
+  attachment: (
+    <>
+      <path d="M21 12.5l-8.5 8.5a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" />
+    </>
+  ),
+  linked_record: (
+    <>
+      <path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" />
+      <path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" />
+    </>
+  ),
+  lookup: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+      <line x1="8" y1="11" x2="14" y2="11" />
+    </>
+  ),
+  rollup: (
+    <>
+      <path d="M4 5h16" />
+      <path d="M4 5l6 7-6 7h16" />
+    </>
+  ),
+  autonumber: (
+    <>
+      <path d="M4 9h4M4 15h4" />
+      <path d="M9 4l-2 16M17 4l-2 16" />
+    </>
+  ),
+  created_time: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <polyline points="12 8 12 12 15 14" />
+    </>
+  ),
+  last_modified_time: (
+    <>
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <polyline points="3 3 3 8 8 8" />
+    </>
+  ),
 }
 
 export function FieldIcon({ type, size = 14, style }: { type: FieldType; size?: number; style?: CSSProperties }) {
@@ -219,5 +261,46 @@ export const LinkIcon = ({ size = 13 }: { size?: number }) => (
   <Svg size={size}>
     <path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" />
     <path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" />
+  </Svg>
+)
+
+export const ExpandIcon = ({ size = 13 }: { size?: number }) => (
+  <Svg size={size}>
+    <polyline points="15 3 21 3 21 9" />
+    <polyline points="9 21 3 21 3 15" />
+    <line x1="21" y1="3" x2="14" y2="10" />
+    <line x1="3" y1="21" x2="10" y2="14" />
+  </Svg>
+)
+
+export const HistoryIcon = ({ size = 14 }: { size?: number }) => (
+  <Svg size={size}>
+    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+    <polyline points="3 3 3 8 8 8" />
+    <polyline points="12 8 12 12 14 14" />
+  </Svg>
+)
+
+export const KanbanIcon = ({ size = 15 }: { size?: number }) => (
+  <Svg size={size}>
+    <rect x="3" y="4" width="5" height="16" rx="1" />
+    <rect x="10" y="4" width="5" height="10" rx="1" />
+    <rect x="17" y="4" width="4" height="13" rx="1" />
+  </Svg>
+)
+
+export const UserIcon = ({ size = 13 }: { size?: number }) => (
+  <Svg size={size}>
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 21a8 8 0 0 1 16 0" />
+  </Svg>
+)
+
+export const BotIcon = ({ size = 13 }: { size?: number }) => (
+  <Svg size={size}>
+    <rect x="4" y="8" width="16" height="12" rx="2" />
+    <path d="M12 8V4" />
+    <circle cx="9" cy="14" r="1" />
+    <circle cx="15" cy="14" r="1" />
   </Svg>
 )
