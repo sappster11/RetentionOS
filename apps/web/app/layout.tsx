@@ -1,23 +1,33 @@
 import type { ReactNode } from 'react'
+import { listTables } from '@retentionos/engine'
+import { getCurrentOrg } from '@/lib/org'
+import './theme.css'
+import { AppShell } from './_ui/AppShell'
 
 export const metadata = {
   title: 'RetentionOS',
-  description: 'An owned, AI-native operating system for a retention agency.',
+  description: 'An owned, AI-native operating system — the meta-schema engine.',
 }
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+// Server component: reads the table list (a read; mutations go through /api/v1) and the
+// current org, then hands them to the client-side shell which owns interactivity.
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  let tables: Awaited<ReturnType<typeof listTables>> = []
+  let orgName = 'RetentionOS'
+  try {
+    const org = await getCurrentOrg()
+    orgName = org.name
+    tables = await listTables(org.id)
+  } catch {
+    // Unseeded / no DB — render an empty shell rather than crashing the whole app.
+  }
+
   return (
     <html lang="en">
-      <body
-        style={{
-          margin: 0,
-          fontFamily:
-            'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
-          background: '#0b0c0e',
-          color: '#e7e9ee',
-        }}
-      >
-        {children}
+      <body>
+        <AppShell tables={tables} orgName={orgName}>
+          {children}
+        </AppShell>
       </body>
     </html>
   )

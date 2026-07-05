@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get('code')
 
   if (!authEnabled) {
-    return NextResponse.redirect(`${origin}/clients`)
+    return NextResponse.redirect(`${origin}/`)
   }
 
   if (code) {
@@ -37,5 +37,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.redirect(`${origin}/clients`)
+  return NextResponse.redirect(`${origin}/`)
 }

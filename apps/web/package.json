@@ -14,6 +14,7 @@
     "@retentionos/ai": "workspace:*",
     "@retentionos/content": "workspace:*",
     "@retentionos/db": "workspace:*",
+    "@retentionos/engine": "workspace:*",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.47.0",
     "next": "^15.1.0",

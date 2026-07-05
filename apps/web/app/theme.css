@@ -1,0 +1,59 @@
+/* RetentionOS — light-mode, Airtable-esque design tokens + base styles.
+   Neutral grays, white background, subtle borders, dense small text, system fonts. */
+:root {
+  --bg: #ffffff;
+  --bg-subtle: #f7f7f8;
+  --bg-hover: #f2f2f3;
+  --bg-sidebar: #fbfbfc;
+  --border: #e5e6e8;
+  --border-strong: #d4d5d8;
+  --text: #1a1a1c;
+  --text-muted: #6b6b70;
+  --text-faint: #9a9aa0;
+  --accent: #2b6cb0;
+  --accent-soft: #e8f0f9;
+  --danger: #c53030;
+  --radius: 6px;
+  --sidebar-w: 240px;
+  --chat-w: 320px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  --fs: 13px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font);
+  font-size: var(--fs);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}

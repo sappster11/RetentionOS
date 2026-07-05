@@ -48,6 +48,9 @@ importers:
       '@retentionos/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@retentionos/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
       '@supabase/ssr':
         specifier: ^0.6.1
         version: 0.6.1(@supabase/supabase-js@2.110.0)

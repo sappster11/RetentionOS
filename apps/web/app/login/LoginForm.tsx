@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
-import { Field, buttonStyle, inputStyle } from '../_components/ui'
+import { Field, buttonPrimary, inputStyle } from '../_ui/primitives'
 
 export function LoginForm() {
   const [email, setEmail] = useState('')
@@ -50,10 +50,10 @@ export function LoginForm() {
           style={inputStyle}
         />
       </Field>
-      <button type="submit" disabled={status === 'sending'} style={buttonStyle}>
+      <button type="submit" disabled={status === 'sending'} style={buttonPrimary}>
         {status === 'sending' ? 'Sending…' : 'Send magic link'}
       </button>
-      {error ? <p style={{ color: '#f08a8a', fontSize: '0.85rem' }}>{error}</p> : null}
+      {error ? <p style={{ color: 'var(--danger)', fontSize: 12 }}>{error}</p> : null}
     </form>
   )
 }
