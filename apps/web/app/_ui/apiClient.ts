@@ -2,9 +2,10 @@
 // the engine service layer directly), so the API is exercised by the app itself.
 import type {
   EngineField,
-  EngineRecord,
+  EngineRecordRevision,
   EngineTable,
   EngineView,
+  EnrichedRecord,
   FieldOptions,
   FieldType,
   FilterCondition,
@@ -12,6 +13,7 @@ import type {
   SortSpec,
   TableDescriptor,
   ViewConfig,
+  ViewType,
 } from '@retentionos/engine'
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -70,14 +72,17 @@ export const api = {
     return req<QueryRecordsResult>(`/api/v1/tables/${tableId}/records${qs ? `?${qs}` : ''}`)
   },
 
+  getRecord: (tableId: string, recordId: string) =>
+    req<{ record: EnrichedRecord }>(`/api/v1/tables/${tableId}/records/${recordId}`).then((r) => r.record),
+
   createRecord: (tableId: string, values: Record<string, unknown>) =>
-    req<{ record: EngineRecord }>(`/api/v1/tables/${tableId}/records`, {
+    req<{ record: EnrichedRecord }>(`/api/v1/tables/${tableId}/records`, {
       method: 'POST',
       body: JSON.stringify({ values }),
     }).then((r) => r.record),
 
   updateRecord: (tableId: string, recordId: string, values: Record<string, unknown>) =>
-    req<{ record: EngineRecord }>(`/api/v1/tables/${tableId}/records/${recordId}`, {
+    req<{ record: EnrichedRecord }>(`/api/v1/tables/${tableId}/records/${recordId}`, {
       method: 'PATCH',
       body: JSON.stringify({ values }),
     }).then((r) => r.record),
@@ -86,6 +91,11 @@ export const api = {
     req<{ deleted: number }>(`/api/v1/tables/${tableId}/records/${recordId}`, {
       method: 'DELETE',
     }),
+
+  listRevisions: (tableId: string, recordId: string) =>
+    req<{ revisions: EngineRecordRevision[] }>(
+      `/api/v1/tables/${tableId}/records/${recordId}/revisions`,
+    ).then((r) => r.revisions),
 
   bulkDeleteRecords: (tableId: string, recordIds: string[]) =>
     req<{ deleted: number }>(`/api/v1/tables/${tableId}/records/bulk-delete`, {

@@ -1,4 +1,4 @@
-import { createRecord, queryRecords, EngineError } from '@retentionos/engine'
+import { createRecord, getRecordEnriched, queryRecords, EngineError } from '@retentionos/engine'
 import type { FilterCondition, SortSpec } from '@retentionos/engine'
 import { API_ACTOR, errorResponse, json, readJson, resolveOrgId } from '@/lib/api'
 
@@ -62,7 +62,9 @@ export async function POST(request: Request, { params }: Params) {
     const { tableId } = await params
     const body = await readJson(request)
     const values = (body.values as Record<string, unknown>) ?? {}
-    const record = await createRecord(orgId, tableId, values, API_ACTOR)
+    const created = await createRecord(orgId, tableId, values, API_ACTOR)
+    // Return the enriched shape (values + display) so the UI renders links/computed at once.
+    const record = (await getRecordEnriched(orgId, tableId, created.id)) ?? created
     return json({ record }, 201)
   } catch (err) {
     return errorResponse(err)
