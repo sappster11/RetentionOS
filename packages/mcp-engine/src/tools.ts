@@ -304,6 +304,15 @@ const sortSchema = z.object({
   direction: z.enum(['asc', 'desc']).describe('Sort direction.'),
 })
 
+const formFieldSchema = z
+  .object({
+    fieldId: z.string().describe('A form-writable field id on the table (no computed, no linked_record).'),
+    required: z.boolean().optional().describe('Form-level required (independent of the engine field flag).'),
+    label: z.string().optional().describe('Override the field name on the public form.'),
+    helpText: z.string().optional().describe('Help text under the label.'),
+  })
+  .describe('One form field, in render order.')
+
 const viewConfigSchema = z
   .object({
     filters: filterSchema.array().optional(),
@@ -314,8 +323,16 @@ const viewConfigSchema = z
       .nullable()
       .optional()
       .describe('Kanban: the single_select field that defines the columns.'),
+    title: z.string().optional().describe('Form: heading on the public page (falls back to the view name).'),
+    description: z.string().optional().describe('Form: description under the title.'),
+    submitLabel: z.string().optional().describe('Form: submit button label (default "Submit").'),
+    publicSlug: z
+      .string()
+      .optional()
+      .describe('Form: url-safe public slug for /f/<slug>. Omit to auto-generate; immutable once set.'),
+    fields: formFieldSchema.array().optional().describe('Form: the fields shown, in order.'),
   })
-  .describe('View configuration (filters, sorts, visible fields, kanban grouping).')
+  .describe('View configuration (filters, sorts, visible fields, kanban grouping, form settings).')
 
 const FIELD_TYPE_ENUM = z.enum(FIELD_TYPES as [FieldType, ...FieldType[]])
 
@@ -708,8 +725,8 @@ export const tools: EngineToolDef[] = [
     name: 'list_views',
     title: 'List views',
     description:
-      'List a table\'s saved views (grid or kanban) with their config: filters, sorts, ' +
-      'visible fields, and kanban grouping.',
+      'List a table\'s saved views (grid, kanban, or form) with their config: filters, sorts, ' +
+      'visible fields, kanban grouping, and form settings (fields, publicSlug).',
     inputSchema: { table: tableRef, organization_id: organizationIdField },
     handler: async ({ table, organization_id }) => {
       const orgId = await resolveOrg(organization_id)
@@ -722,13 +739,15 @@ export const tools: EngineToolDef[] = [
     name: 'create_view',
     title: 'Create view',
     description:
-      'Create a saved view on a table. type "grid" (default) or "kanban". For kanban, set ' +
+      'Create a saved view on a table. type "grid" (default), "kanban", or "form". For kanban, set ' +
       'config.groupByFieldId to a single_select field id — its choices become the columns. ' +
-      'config filters/sorts use the same shapes as query_records.',
+      'config filters/sorts use the same shapes as query_records. For a form, set config.fields ' +
+      'to the form-writable fields (no computed, no linked_record) in order; the engine mints a ' +
+      'unique config.publicSlug and serves the form publicly (no auth) at /f/<publicSlug>.',
     inputSchema: {
       table: tableRef,
       name: z.string().min(1).describe('View name, e.g. "Pipeline".'),
-      type: z.enum(['grid', 'kanban']).optional().describe('View type (default "grid").'),
+      type: z.enum(['grid', 'kanban', 'form']).optional().describe('View type (default "grid").'),
       config: viewConfigSchema.optional(),
       organization_id: organizationIdField,
     },
@@ -755,7 +774,7 @@ export const tools: EngineToolDef[] = [
       table: tableRef,
       view_id: z.string().uuid().describe('The view id (from list_views).'),
       name: z.string().min(1).optional(),
-      type: z.enum(['grid', 'kanban']).optional(),
+      type: z.enum(['grid', 'kanban', 'form']).optional(),
       config: viewConfigSchema.optional().describe('Replacement config object.'),
       position: z.number().int().optional(),
       organization_id: organizationIdField,
