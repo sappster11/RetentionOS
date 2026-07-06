@@ -30,21 +30,30 @@ export async function setup(): Promise<void> {
   })
   await pgServer.initialise()
   await pgServer.start()
-  await pgServer.createDatabase('retentionos')
 
-  const connectionString = `postgresql://ros:ros@127.0.0.1:${port}/retentionos`
-  process.env.DATABASE_URL = connectionString
-
-  const pool = getPool()
-  const client = await pool.connect()
+  // Everything after start() is wrapped so a failed migration (or createDatabase) stops
+  // the embedded server before rethrowing — otherwise a crashed setup leaks a process
+  // holding the port and every subsequent run fails to bind.
   try {
-    await client.query(await readFile(shimPath, 'utf8'))
-    for (const file of ENGINE_MIGRATIONS) {
-      await client.query(await readFile(join(migrationsDir, file), 'utf8'))
+    await pgServer.createDatabase('retentionos')
+
+    const connectionString = `postgresql://ros:ros@127.0.0.1:${port}/retentionos`
+    process.env.DATABASE_URL = connectionString
+
+    const pool = getPool()
+    const client = await pool.connect()
+    try {
+      await client.query(await readFile(shimPath, 'utf8'))
+      for (const file of ENGINE_MIGRATIONS) {
+        await client.query(await readFile(join(migrationsDir, file), 'utf8'))
+      }
+    } finally {
+      client.release()
+      await pool.end()
     }
-  } finally {
-    client.release()
-    await pool.end()
+  } catch (error) {
+    await pgServer.stop().catch(() => {})
+    throw error
   }
 }
 

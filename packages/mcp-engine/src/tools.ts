@@ -55,13 +55,23 @@ export function agentActor(): Actor {
   return { type: 'agent', id: process.env.ROS_AGENT_ID || 'mcp-engine' }
 }
 
-const DEFAULT_ORG_ID = process.env.RETENTIONOS_ORG_ID
-
-/** Explicit per-call override → server-wide RETENTIONOS_ORG_ID → the first (only, in
- * dev) organization in the database. Every tool calls this before touching the engine. */
+/** Org pinning: when RETENTIONOS_ORG_ID is set the server is locked to that tenant — a
+ * per-call organization_id that differs is REJECTED (there is no per-call auth, so the env
+ * pin is the only tenant boundary). When unset: per-call override → the first (only, in
+ * dev) organization in the database. Read at call time so tests can set the env per-case. */
 async function resolveOrg(inputOrgId?: string): Promise<string> {
+  const pinned = process.env.RETENTIONOS_ORG_ID
+  if (pinned) {
+    if (inputOrgId && inputOrgId !== pinned) {
+      throw new EngineError(
+        `This server is pinned to org ${pinned} (RETENTIONOS_ORG_ID); ` +
+          `a different per-call organization_id is not allowed.`,
+        'forbidden',
+      )
+    }
+    return pinned
+  }
   if (inputOrgId) return inputOrgId
-  if (DEFAULT_ORG_ID) return DEFAULT_ORG_ID
   const org = await getDefaultOrganization()
   if (org?.id) return org.id
   throw new EngineError(
@@ -82,8 +92,15 @@ async function resolveTableId(orgId: string, ref: string): Promise<string> {
   if (bySlug) return bySlug.id
   const all = await engineListTables(orgId)
   const lowered = ref.toLowerCase()
-  const byName = all.find((t) => t.name.toLowerCase() === lowered)
-  if (byName) return byName.id
+  const byName = all.filter((t) => t.name.toLowerCase() === lowered)
+  if (byName.length === 1) return byName[0]!.id
+  if (byName.length > 1) {
+    const matches = byName.map((t) => `${t.id} ("${t.name}")`).join(', ')
+    throw new EngineError(
+      `Multiple tables match "${ref}"; use the table id. Matches: ${matches}`,
+      'ambiguous',
+    )
+  }
   throw new EngineError(
     `No table matching "${ref}" (tried id, slug, and name). Call list_tables to see what exists.`,
     'not_found',
@@ -107,8 +124,20 @@ function ok(result: unknown): ToolResult {
 }
 
 /** EngineError codes pass through intact ({"error":{code,message}}), so an agent can
- * distinguish not_found from bad_value from required and self-correct. */
+ * distinguish not_found from bad_value from required and self-correct. Zod validation
+ * failures map to "bad_input" with a readable per-path summary. */
 function fail(error: unknown): ToolResult {
+  if (error instanceof z.ZodError) {
+    const message =
+      'Invalid arguments: ' +
+      error.issues.map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')
+    return {
+      isError: true,
+      content: [
+        { type: 'text' as const, text: JSON.stringify({ error: { code: 'bad_input', message } }) },
+      ],
+    }
+  }
   const code = error instanceof EngineError ? error.code : 'error'
   const message = error instanceof Error ? error.message : String(error)
   return {
@@ -122,7 +151,8 @@ export interface EngineToolDef {
   title: string
   description: string
   inputSchema: z.ZodRawShape
-  /** Wrapped handler: engine errors are already mapped to MCP tool errors. */
+  /** Wrapped handler: args are validated against inputSchema here (so the tools array is
+   * transport-independent) and engine errors are already mapped to MCP tool errors. */
   run: (args: Record<string, unknown>) => Promise<ToolResult>
 }
 
@@ -140,7 +170,8 @@ function defineTool<S extends z.ZodRawShape>(def: {
     inputSchema: def.inputSchema,
     run: async (args) => {
       try {
-        return ok(await def.handler(args as z.infer<z.ZodObject<S>>))
+        const parsed = z.object(def.inputSchema).parse(args) as z.infer<z.ZodObject<S>>
+        return ok(await def.handler(parsed))
       } catch (error) {
         return fail(error)
       }
@@ -158,7 +189,8 @@ const organizationIdField = z
   .optional()
   .describe(
     'Organization to scope to. Defaults to the server RETENTIONOS_ORG_ID, then the first ' +
-      'organization in the database. Only pass this to target a specific tenant explicitly.',
+      'organization in the database. If the server is pinned via RETENTIONOS_ORG_ID, a ' +
+      'different value here is rejected.',
   )
 
 const tableRef = z
@@ -211,6 +243,9 @@ const fieldOptionsSchema = z
           'Example: "{fld:<uuid-of-Amount>} * {fld:<uuid-of-Probability>}".',
       ),
   })
+  // Passthrough: unknown option keys (e.g. options.description stashed by seeds) must
+  // survive describe → update round-trips instead of being silently stripped.
+  .passthrough()
   .describe('Type-specific field configuration.')
 
 const VALUE_FORMATS =

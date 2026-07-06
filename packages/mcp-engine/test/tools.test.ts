@@ -356,3 +356,92 @@ describe('mcp-engine tools — schema building', () => {
     expect(tables.some((t: any) => t.id === companiesId)).toBe(false)
   })
 })
+
+describe('mcp-engine tools — review-fix behaviors', () => {
+  it('ambiguous name refs error with the matching ids; slug and id refs still resolve', async () => {
+    const org = await ensureTestOrg()
+    const a = await call('create_table', { name: 'Deals', organization_id: org })
+    const b = await call('create_table', { name: 'deals', organization_id: org })
+    expect(a.table.slug).toBe('deals')
+    expect(b.table.slug).toBe('deals-2') // slug uniquing permits the name collision
+
+    // A name ref matching both tables (case-insensitive) is ambiguous — never a guess.
+    const err = await callExpectError('describe_table', { table: 'DEALS', organization_id: org })
+    expect(err.code).toBe('ambiguous')
+    expect(err.message).toContain(a.table.id)
+    expect(err.message).toContain(b.table.id)
+
+    // Applies to destructive tools too — nothing gets deleted on an ambiguous ref.
+    const del = await callExpectError('delete_table', { table: 'DEALS', organization_id: org })
+    expect(del.code).toBe('ambiguous')
+    const { tables } = await call('list_tables', { organization_id: org })
+    expect(tables.length).toBe(2)
+
+    // Slug and id refs stay deterministic.
+    const bySlug = await call('describe_table', { table: 'deals', organization_id: org })
+    expect(bySlug.table.id).toBe(a.table.id)
+    const bySlug2 = await call('describe_table', { table: 'deals-2', organization_id: org })
+    expect(bySlug2.table.id).toBe(b.table.id)
+    const byId = await call('describe_table', { table: b.table.id, organization_id: org })
+    expect(byId.table.id).toBe(b.table.id)
+  })
+
+  it('run() validates args itself (transport-independent) — bad input → bad_input', async () => {
+    const missing = await callExpectError('create_table', { organization_id: orgId })
+    expect(missing.code).toBe('bad_input')
+    expect(missing.message).toContain('name')
+
+    const badLimit = await callExpectError('query_records', {
+      table: 'whatever',
+      limit: 0,
+      organization_id: orgId,
+    })
+    expect(badLimit.code).toBe('bad_input')
+    expect(badLimit.message).toContain('limit')
+  })
+
+  it('update_field round-trips unknown option keys (options passthrough)', async () => {
+    const org = await ensureTestOrg()
+    const t = await call('create_table', { name: 'Budget', organization_id: org })
+    const f = await call('create_field', {
+      table: t.table.id,
+      name: 'Fee',
+      type: 'currency',
+      options: { currencySymbol: '$', description: 'Always monthly' },
+      organization_id: org,
+    })
+    expect(f.field.options.description).toBe('Always monthly')
+
+    // describe → update round-trip: send back exactly what describe returned; the unknown
+    // "description" key must survive the tool-level schema parse instead of being stripped.
+    const desc = await call('describe_table', { table: t.table.id, organization_id: org })
+    const fee = desc.fields.find((x: any) => x.id === f.field.id)
+    const upd = await call('update_field', {
+      table: t.table.id,
+      field_id: f.field.id,
+      options: fee.options,
+      organization_id: org,
+    })
+    expect(upd.field.options.description).toBe('Always monthly')
+    expect(upd.field.options.currencySymbol).toBe('$')
+  })
+
+  it('RETENTIONOS_ORG_ID pins the server: a differing per-call org is forbidden', async () => {
+    const pinnedOrg = await ensureTestOrg()
+    const otherOrg = await ensureTestOrg()
+    process.env.RETENTIONOS_ORG_ID = pinnedOrg
+    try {
+      const err = await callExpectError('list_tables', { organization_id: otherOrg })
+      expect(err.code).toBe('forbidden')
+      expect(err.message).toContain(pinnedOrg)
+
+      // Same org as the pin, or omitted entirely → allowed (both resolve to the pin).
+      const same = await call('list_tables', { organization_id: pinnedOrg })
+      expect(same.tables).toEqual([])
+      const omitted = await call('list_tables', {})
+      expect(omitted.tables).toEqual([])
+    } finally {
+      delete process.env.RETENTIONOS_ORG_ID
+    }
+  })
+})

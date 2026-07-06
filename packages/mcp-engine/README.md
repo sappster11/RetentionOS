@@ -29,8 +29,18 @@ fractions. Formulas use `{fld:FIELD_ID}` tokens. Computed fields are read-only.
 | Var | Required | Meaning |
 |-----|----------|---------|
 | `DATABASE_URL` | yes | Postgres connection string (same one the web app uses) |
-| `RETENTIONOS_ORG_ID` | no | Org to scope to; defaults to the first org in the DB |
+| `RETENTIONOS_ORG_ID` | no | Pin the server to one org. When set, a per-call `organization_id` that differs is rejected (`forbidden`); when unset, tools default to the first org in the DB and accept per-call overrides |
 | `ROS_AGENT_ID` | no | Actor id written to the audit trail (default `mcp-engine`) — set per agent so attribution stays distinguishable |
+
+## Security note
+
+This server is a **pre-auth, single-tenant design**: there is no per-call authentication —
+anything that can reach the stdio transport gets full read/write access to the database it
+points at. Tenant scoping is by convention, not enforcement, unless you pin the server to
+one org via `RETENTIONOS_ORG_ID` (then per-call `organization_id` overrides that differ
+are rejected with `forbidden`). Run it only as a local stdio child of a client you trust
+(Claude Code / Claude Desktop); **do not expose it beyond local stdio** (no TCP/HTTP
+bridges, no shared hosts) until real auth lands.
 
 ## Run it
 
@@ -65,6 +75,10 @@ Add to `claude_desktop_config.json` (Settings → Developer → Edit Config):
   }
 }
 ```
+
+macOS note: Claude Desktop does not inherit your shell's PATH, so under nvm you may need
+an absolute `command` (e.g. `~/.nvm/versions/node/v22.x.x/bin/npx`, or run
+`which npx` and paste the result).
 
 ## Tests
 

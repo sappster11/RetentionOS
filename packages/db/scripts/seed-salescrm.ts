@@ -5,9 +5,16 @@
 //
 // Run: DATABASE_URL=postgres://... pnpm --filter @retentionos/db seed:salescrm
 //
-// Idempotent: tables are matched by slug, fields and views by name — re-running creates
-// nothing. Built entirely through @retentionos/engine (the same service layer the UI, API,
-// and agents use), so no SQL and no migrations.
+// Idempotency: tables are matched by slug, fields and views by name — rerunning a completed
+// seed creates nothing. That holds only while the seeded tables/fields/views KEEP their
+// names: rename one and rerun, and the seed creates a fresh parallel field/view under the
+// original name (by design — the seed never guesses that a renamed thing is "its" field).
+// When a same-name field/view already exists, its type (and, for links, the target table)
+// must match what the seed expects; on mismatch the seed ABORTS before creating anything —
+// it never silently adopts a wrong-typed field. All existence/type checks run in a
+// validate pass before any writes (two-phase: validate, then create), so a conflict can
+// never leave a half-seeded table behind. Built entirely through @retentionos/engine (the
+// same service layer the UI, API, and agents use), so no SQL and no migrations.
 //
 // Known engine gaps this seed works around (docs/09 "noted, not blocking"):
 //  - No relative-date filters: the Follow-ups view carries only the stage filters; the
@@ -50,6 +57,29 @@ let fieldsCreated = 0
 let inverseFieldsCreated = 0
 let viewsCreated = 0
 
+// Two-phase execution: the whole seed body runs twice. The 'validate' pass creates
+// NOTHING — it only checks every existing same-name field/view against the expected
+// type/link-target and collects conflicts. Only if the validate pass is clean does the
+// 'create' pass run and write whatever is missing. Not-yet-existing tables get a
+// "pending:" sentinel id in the validate pass (nothing inside them can conflict).
+type SeedPhase = 'validate' | 'create'
+let phase: SeedPhase = 'validate'
+const conflicts: string[] = []
+const tableNames = new Map<string, string>()
+
+const isPendingId = (id: string) => id.startsWith('pending:')
+
+/** Placeholder returned by the validate pass for things that don't exist yet. Its id is
+ * only ever interpolated into configs that the validate pass never persists. */
+function stubField(input: CreateFieldInput): EngineField {
+  return {
+    id: `pending:field:${input.name}`,
+    name: input.name,
+    type: input.type,
+    options: input.options ?? {},
+  } as unknown as EngineField
+}
+
 async function ensureOrgId(): Promise<string> {
   const org = await getDefaultOrganization()
   if (org) return org.id
@@ -66,20 +96,42 @@ async function ensureTable(
   input: { name: string; slug: string; icon: string; description: string },
 ): Promise<EngineTable> {
   const existing = await getTableBySlug(orgId, input.slug)
-  if (existing) return existing
+  if (existing) {
+    tableNames.set(existing.id, existing.name)
+    return existing
+  }
+  if (phase === 'validate') {
+    const id = `pending:${input.slug}`
+    tableNames.set(id, input.name)
+    return { ...input, id } as EngineTable
+  }
   tablesCreated += 1
-  return createTable(orgId, input, SEED_ACTOR)
+  const created = await createTable(orgId, input, SEED_ACTOR)
+  tableNames.set(created.id, created.name)
+  return created
 }
 
-/** Create a field unless one with the same name already exists on the table. */
+/** Create a field unless one with the same name already exists on the table. An existing
+ * same-name field must match the expected TYPE — a mismatch is recorded as a conflict
+ * (validate pass) that aborts the whole seed before anything is created. */
 async function ensureField(
   orgId: string,
   tableId: string,
   input: CreateFieldInput,
 ): Promise<{ field: EngineField; created: boolean }> {
+  if (isPendingId(tableId)) return { field: stubField(input), created: false }
   const fields = await listFields(orgId, tableId)
   const existing = fields.find((f) => f.name === input.name)
-  if (existing) return { field: existing, created: false }
+  if (existing) {
+    if (phase === 'validate' && existing.type !== input.type) {
+      conflicts.push(
+        `Seed conflict: field '${input.name}' on table '${tableNames.get(tableId)}' exists ` +
+          `with type ${existing.type}, expected ${input.type} — resolve manually`,
+      )
+    }
+    return { field: existing, created: false }
+  }
+  if (phase === 'validate') return { field: stubField(input), created: false }
   fieldsCreated += 1
   return { field: await createField(orgId, tableId, input, SEED_ACTOR), created: true }
 }
@@ -88,6 +140,8 @@ async function ensureField(
  * Create a linked_record field on `tableId` pointing at `targetTableId`. The engine
  * auto-creates the inverse on the target named after the source table ("Leads"); when the
  * spec wants a singular inverse name ("Lead"), rename it right after creation.
+ * An existing same-name field must be a linked_record AND point at the intended target
+ * table — anything else is a conflict that aborts the seed.
  */
 async function ensureLink(
   orgId: string,
@@ -101,6 +155,19 @@ async function ensureLink(
     type: 'linked_record',
     options: { linkedTableId: targetTableId },
   })
+  if (
+    phase === 'validate' &&
+    !created &&
+    !isPendingId(field.id) &&
+    field.type === 'linked_record' && // wrong type already recorded by ensureField
+    field.options.linkedTableId !== targetTableId
+  ) {
+    conflicts.push(
+      `Seed conflict: field '${name}' on table '${tableNames.get(tableId)}' is a ` +
+        `linked_record pointing at table ${field.options.linkedTableId}, expected ` +
+        `${targetTableId} ('${tableNames.get(targetTableId)}') — resolve manually`,
+    )
+  }
   if (created) {
     inverseFieldsCreated += 1
     if (inverseName && field.options.inverseFieldId) {
@@ -110,6 +177,8 @@ async function ensureLink(
   return field
 }
 
+/** Create a view unless one with the same name exists — which must match the expected
+ * TYPE, else the seed aborts (same rule as fields). */
 async function ensureView(
   orgId: string,
   tableId: string,
@@ -117,8 +186,19 @@ async function ensureView(
   type: ViewType,
   config?: ViewConfig,
 ): Promise<void> {
+  if (isPendingId(tableId)) return
   const views = await listViews(orgId, tableId)
-  if (views.some((v) => v.name === name)) return
+  const existing = views.find((v) => v.name === name)
+  if (existing) {
+    if (phase === 'validate' && existing.type !== type) {
+      conflicts.push(
+        `Seed conflict: view '${name}' on table '${tableNames.get(tableId)}' exists with ` +
+          `type ${existing.type}, expected ${type} — resolve manually`,
+      )
+    }
+    return
+  }
+  if (phase === 'validate') return
   viewsCreated += 1
   await createView(orgId, tableId, { name, type, config })
 }
@@ -128,10 +208,9 @@ function sel(...cs: Array<[string, string, string]>): FieldOptions {
   return { choices: cs.map(([id, name, color]) => ({ id, name, color })) }
 }
 
-async function main() {
-  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set.')
-  const orgId = await ensureOrgId()
-
+/** The full seed walk. Runs twice: phase='validate' (checks only, zero writes), then —
+ * only if no conflicts — phase='create' (writes whatever is missing). */
+async function seed(orgId: string) {
   // --- Tables (Leads first so it takes the first tab) --------------------------------
   const leads = await ensureTable(orgId, {
     name: 'Leads',
@@ -424,6 +503,23 @@ async function main() {
   await ensureView(orgId, activities.id, 'Grid', 'grid')
   await ensureView(orgId, audits.id, 'Grid', 'grid')
   await ensureView(orgId, agreements.id, 'Grid', 'grid')
+}
+
+async function main() {
+  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set.')
+  const orgId = await ensureOrgId()
+
+  // Pass 1: validate every existing same-name field/view against the expected shape
+  // BEFORE creating anything, so a conflict aborts with zero writes (no partial seed).
+  phase = 'validate'
+  await seed(orgId)
+  if (conflicts.length > 0) {
+    throw new Error(`Seed aborted — nothing was created:\n${conflicts.join('\n')}`)
+  }
+
+  // Pass 2: same walk, now creating whatever is missing.
+  phase = 'create'
+  await seed(orgId)
 
   console.log(
     `Sales CRM seed complete: ${tablesCreated} tables, ${fieldsCreated} fields ` +
