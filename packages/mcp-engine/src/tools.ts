@@ -59,16 +59,35 @@ export function agentActor(): Actor {
   return { type: 'agent', id: process.env.ROS_AGENT_ID || 'mcp-engine' }
 }
 
-/** Org pinning: when RETENTIONOS_ORG_ID is set the server is locked to that tenant — a
- * per-call organization_id that differs is REJECTED (there is no per-call auth, so the env
- * pin is the only tenant boundary). When unset: per-call override → the first (only, in
- * dev) organization in the database. Read at call time so tests can set the env per-case. */
-async function resolveOrg(inputOrgId?: string): Promise<string> {
-  const pinned = process.env.RETENTIONOS_ORG_ID
+/** Optional per-call context for embedded consumers (e.g. the in-app agent route), which
+ * serve many concurrent requests from one process and therefore can't use the env-var
+ * knobs (ROS_AGENT_ID / RETENTIONOS_ORG_ID) the stdio server relies on. */
+export interface ToolRunContext {
+  /** Actor stamped on mutations. Default: agentActor() (ROS_AGENT_ID env). */
+  actor?: Actor
+  /** Pre-resolved organization id. Behaves exactly like the RETENTIONOS_ORG_ID pin:
+   * a conflicting per-call organization_id argument is rejected. */
+  orgId?: string
+}
+
+/** What handlers receive alongside their parsed args: the resolved actor and an org
+ * resolver with any per-call pin already baked in. */
+interface HandlerContext {
+  actor: Actor
+  resolveOrg: (inputOrgId?: string) => Promise<string>
+}
+
+/** Org pinning: when a per-call orgId (embedded consumers) or RETENTIONOS_ORG_ID (stdio
+ * server) is set, the call is locked to that tenant — a per-call organization_id that
+ * differs is REJECTED (there is no per-call auth, so the pin is the only tenant boundary).
+ * When unset: per-call override → the first (only, in dev) organization in the database.
+ * Env is read at call time so tests can set it per-case. */
+async function resolveOrg(inputOrgId?: string, pinnedOrgId?: string): Promise<string> {
+  const pinned = pinnedOrgId || process.env.RETENTIONOS_ORG_ID
   if (pinned) {
     if (inputOrgId && inputOrgId !== pinned) {
       throw new EngineError(
-        `This server is pinned to org ${pinned} (RETENTIONOS_ORG_ID); ` +
+        `This agent is pinned to org ${pinned}; ` +
           `a different per-call organization_id is not allowed.`,
         'forbidden',
       )
@@ -181,8 +200,9 @@ export interface EngineToolDef {
   description: string
   inputSchema: z.ZodRawShape
   /** Wrapped handler: args are validated against inputSchema here (so the tools array is
-   * transport-independent) and engine errors are already mapped to MCP tool errors. */
-  run: (args: Record<string, unknown>) => Promise<ToolResult>
+   * transport-independent) and engine errors are already mapped to MCP tool errors.
+   * `ctx` lets an embedded consumer pin the org and set the audit actor per call. */
+  run: (args: Record<string, unknown>, ctx?: ToolRunContext) => Promise<ToolResult>
 }
 
 function defineTool<S extends z.ZodRawShape>(def: {
@@ -190,17 +210,21 @@ function defineTool<S extends z.ZodRawShape>(def: {
   title: string
   description: string
   inputSchema: S
-  handler: (args: z.infer<z.ZodObject<S>>) => Promise<unknown>
+  handler: (args: z.infer<z.ZodObject<S>>, ctx: HandlerContext) => Promise<unknown>
 }): EngineToolDef {
   return {
     name: def.name,
     title: def.title,
     description: def.description,
     inputSchema: def.inputSchema,
-    run: async (args) => {
+    run: async (args, runCtx) => {
       try {
         const parsed = z.object(def.inputSchema).parse(args) as z.infer<z.ZodObject<S>>
-        return ok(await def.handler(parsed))
+        const ctx: HandlerContext = {
+          actor: runCtx?.actor ?? agentActor(),
+          resolveOrg: (inputOrgId) => resolveOrg(inputOrgId, runCtx?.orgId),
+        }
+        return ok(await def.handler(parsed, ctx))
       } catch (error) {
         return fail(error)
       }
@@ -393,8 +417,8 @@ export const tools: EngineToolDef[] = [
         ),
       organization_id: organizationIdField,
     },
-    handler: async ({ base, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ base, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const baseId = base ? await resolveBaseId(orgId, base) : null
       const [tables, bases] = await Promise.all([
         engineListTables(orgId),
@@ -423,8 +447,8 @@ export const tools: EngineToolDef[] = [
       'Computed field types (formula, lookup, rollup, autonumber, created_time, ' +
       'last_modified_time) are read-only.',
     inputSchema: { table: tableRef, organization_id: organizationIdField },
-    handler: async ({ table, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
       return engineDescribeTable(orgId, tableId)
     },
@@ -452,14 +476,14 @@ export const tools: EngineToolDef[] = [
         ),
       organization_id: organizationIdField,
     },
-    handler: async ({ name, icon, description, base, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ name, icon, description, base, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const baseId = base ? await resolveBaseId(orgId, base) : null
       return {
         table: await engineCreateTable(
           orgId,
           { name, icon: icon ?? null, description: description ?? null, baseId },
-          agentActor(),
+          ctx.actor,
         ),
       }
     },
@@ -479,8 +503,8 @@ export const tools: EngineToolDef[] = [
       position: z.number().int().optional().describe('New sidebar position.'),
       organization_id: organizationIdField,
     },
-    handler: async ({ table, name, icon, description, position, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, name, icon, description, position, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
       return { table: await engineUpdateTable(orgId, tableId, { name, icon, description, position }) }
     },
@@ -494,8 +518,8 @@ export const tools: EngineToolDef[] = [
       'linked_record fields on OTHER tables that pointed at it are deleted too. ' +
       'Irreversible — confirm before calling.',
     inputSchema: { table: tableRef, organization_id: organizationIdField },
-    handler: async ({ table, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
       await engineDeleteTable(orgId, tableId)
       return { deleted: true, tableId }
@@ -529,15 +553,15 @@ export const tools: EngineToolDef[] = [
       position: z.number().int().optional().describe('Column position (default: append).'),
       organization_id: organizationIdField,
     },
-    handler: async ({ table, name, type, options, required, position, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, name, type, options, required, position, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
       return {
         field: await engineCreateField(
           orgId,
           tableId,
           { name, type, options: options as FieldOptions | undefined, required, position },
-          agentActor(),
+          ctx.actor,
         ),
       }
     },
@@ -561,8 +585,8 @@ export const tools: EngineToolDef[] = [
       position: z.number().int().optional(),
       organization_id: organizationIdField,
     },
-    handler: async ({ table, field_id, name, options, required, position, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, field_id, name, options, required, position, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
       return {
         field: await engineUpdateField(orgId, tableId, field_id, {
@@ -586,8 +610,8 @@ export const tools: EngineToolDef[] = [
       field_id: z.string().uuid().describe('The field id (from describe_table).'),
       organization_id: organizationIdField,
     },
-    handler: async ({ table, field_id, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, field_id, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
       await engineDeleteField(orgId, tableId, field_id)
       return { deleted: true, fieldId: field_id }
@@ -613,8 +637,8 @@ export const tools: EngineToolDef[] = [
       offset: z.number().int().min(0).optional().describe('Rows to skip (default 0).'),
       organization_id: organizationIdField,
     },
-    handler: async ({ table, filters, sorts, limit, offset, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, filters, sorts, limit, offset, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
       return engineQueryRecords(orgId, tableId, {
         filters: filters as FilterCondition[] | undefined,
@@ -642,8 +666,8 @@ export const tools: EngineToolDef[] = [
         .describe('Also return the record\'s revision history (default false).'),
       organization_id: organizationIdField,
     },
-    handler: async ({ table, record_id, include_revisions, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, record_id, include_revisions, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
       const record = await getRecordEnriched(orgId, tableId, record_id)
       if (!record) throw new EngineError(`No record ${record_id} in this table.`, 'not_found')
@@ -669,10 +693,10 @@ export const tools: EngineToolDef[] = [
         .describe('Map of field id (uuid from describe_table) → value.'),
       organization_id: organizationIdField,
     },
-    handler: async ({ table, values, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, values, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
-      return { record: await engineCreateRecord(orgId, tableId, values, agentActor()) }
+      return { record: await engineCreateRecord(orgId, tableId, values, ctx.actor) }
     },
   }),
 
@@ -694,10 +718,10 @@ export const tools: EngineToolDef[] = [
         .describe('Partial map of field id → new value (null to clear).'),
       organization_id: organizationIdField,
     },
-    handler: async ({ table, record_id, values, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, record_id, values, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
-      return { record: await engineUpdateRecord(orgId, tableId, record_id, values, agentActor()) }
+      return { record: await engineUpdateRecord(orgId, tableId, record_id, values, ctx.actor) }
     },
   }),
 
@@ -713,10 +737,10 @@ export const tools: EngineToolDef[] = [
       record_ids: z.array(z.string().uuid()).min(1).describe('Record ids to delete.'),
       organization_id: organizationIdField,
     },
-    handler: async ({ table, record_ids, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, record_ids, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
-      return engineDeleteRecords(orgId, tableId, record_ids, agentActor())
+      return engineDeleteRecords(orgId, tableId, record_ids, ctx.actor)
     },
   }),
 
@@ -728,8 +752,8 @@ export const tools: EngineToolDef[] = [
       'List a table\'s saved views (grid, kanban, or form) with their config: filters, sorts, ' +
       'visible fields, kanban grouping, and form settings (fields, publicSlug).',
     inputSchema: { table: tableRef, organization_id: organizationIdField },
-    handler: async ({ table, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
       return { views: await engineListViews(orgId, tableId) }
     },
@@ -751,8 +775,8 @@ export const tools: EngineToolDef[] = [
       config: viewConfigSchema.optional(),
       organization_id: organizationIdField,
     },
-    handler: async ({ table, name, type, config, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, name, type, config, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
       return {
         view: await engineCreateView(orgId, tableId, {
@@ -779,8 +803,8 @@ export const tools: EngineToolDef[] = [
       position: z.number().int().optional(),
       organization_id: organizationIdField,
     },
-    handler: async ({ table, view_id, name, type, config, position, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, view_id, name, type, config, position, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
       return {
         view: await engineUpdateView(orgId, tableId, view_id, {
@@ -802,8 +826,8 @@ export const tools: EngineToolDef[] = [
       view_id: z.string().uuid().describe('The view id (from list_views).'),
       organization_id: organizationIdField,
     },
-    handler: async ({ table, view_id, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ table, view_id, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
       await engineDeleteView(orgId, tableId, view_id)
       return { deleted: true, viewId: view_id }
@@ -825,8 +849,8 @@ export const tools: EngineToolDef[] = [
       limit: z.number().int().min(1).max(500).optional().describe('Max revisions (default 100).'),
       organization_id: organizationIdField,
     },
-    handler: async ({ record_id, limit, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ record_id, limit, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       return { revisions: await listRecordRevisions(orgId, record_id, limit) }
     },
   }),
