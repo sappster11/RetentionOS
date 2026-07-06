@@ -84,7 +84,9 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<void> {
       max_tokens: opts.maxTokens ?? 8192,
       system: opts.system,
       tools: anthropicTools,
-      messages,
+      // Snapshot: the loop mutates `messages` after the call, and the params object
+      // should describe THIS request (also keeps mocks honest in tests).
+      messages: [...messages],
     })
     stream.on('text', (delta) => opts.emit({ type: 'text', text: delta }))
     const message = await stream.finalMessage()
