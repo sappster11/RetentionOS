@@ -73,8 +73,8 @@ export function AppShell({
     return tables.filter((t) => t.base_id === activeKey)
   }, [tables, ungrouped, activeKey])
 
-  // /login and /auth pages render bare (no shell chrome).
-  if (pathname.startsWith('/login') || pathname.startsWith('/auth')) {
+  // /login, /auth, and public /f/ form pages render bare (no shell chrome).
+  if (pathname.startsWith('/login') || pathname.startsWith('/auth') || pathname.startsWith('/f/')) {
     return <>{children}</>
   }
 

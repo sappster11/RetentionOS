@@ -128,7 +128,7 @@ export const api = {
   listViews: (tableId: string) =>
     req<{ views: EngineView[] }>(`/api/v1/tables/${tableId}/views`).then((r) => r.views),
 
-  createView: (tableId: string, body: { name: string; type?: 'grid' | 'kanban'; config?: ViewConfig }) =>
+  createView: (tableId: string, body: { name: string; type?: ViewType; config?: ViewConfig }) =>
     req<{ view: EngineView }>(`/api/v1/tables/${tableId}/views`, {
       method: 'POST',
       body: JSON.stringify(body),
