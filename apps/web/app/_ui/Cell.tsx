@@ -44,6 +44,14 @@ function fmtCurrency(v: unknown, field: EngineField): string {
   return `${sym}${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+// percent is stored as a fraction (0.5 == 50%). Render value*100 + "%", precision default 0.
+function fmtPercent(v: unknown, field: EngineField): string {
+  const n = Number(v)
+  if (Number.isNaN(n)) return ''
+  const p = field.options.precision ?? 0
+  return `${(n * 100).toLocaleString(undefined, { minimumFractionDigits: p, maximumFractionDigits: p })}%`
+}
+
 const cellPad = '0 8px'
 
 type NavDir = 'down' | 'right'
@@ -96,13 +104,19 @@ export function Cell({
     return <AttachmentCell field={field} attachments={atts} onCommit={onCommit} />
   }
 
-  if (field.type === 'lookup' || field.type === 'rollup') {
+  if (field.type === 'lookup' || field.type === 'rollup' || field.type === 'formula') {
     const d = display
     let text = ''
     if (Array.isArray(d)) text = d.map((v) => (v == null ? '' : String(v))).join(', ')
-    else if (d != null) text = String(d)
+    else if (d != null) {
+      // Formula results render with up to 2 decimals; integer results show no decimals.
+      text =
+        field.type === 'formula' && typeof d === 'number'
+          ? d.toLocaleString(undefined, { maximumFractionDigits: 2 })
+          : String(d)
+    }
     return (
-      <div style={{ padding: cellPad, height: 'var(--row-h)', display: 'flex', alignItems: 'center', color: 'var(--text-muted)', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div style={{ padding: cellPad, height: 'var(--row-h)', display: 'flex', alignItems: 'center', justifyContent: field.type === 'formula' ? 'flex-end' : 'flex-start', color: 'var(--text-muted)', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {text}
       </div>
     )
@@ -208,6 +222,32 @@ export function Cell({
         }}
         style={{ width: '100%', height: 'var(--row-h)', border: 'none', background: 'transparent', padding: cellPad, outline: 'none' }}
       />
+    )
+  }
+
+  // percent — click to edit; editor shows the percentage number (type "50" -> stores 0.5).
+  if (field.type === 'percent') {
+    if (editing) {
+      const asPct = value == null || value === '' ? '' : String(Number(value) * 100)
+      return (
+        <PercentEditor
+          initial={asPct}
+          onDone={(raw, nav) => {
+            setEditing(false)
+            // raw is the percentage number as a string; commit the fraction, blank -> null.
+            if (raw !== undefined) onCommit(raw === '' ? null : Number(raw) / 100)
+            if (nav) onNavigate?.(nav)
+          }}
+        />
+      )
+    }
+    return (
+      <div
+        onClick={() => setEditing(true)}
+        style={{ padding: cellPad, height: 'var(--row-h)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+      >
+        {value == null || value === '' ? '' : fmtPercent(value, field)}
+      </div>
     )
   }
 
@@ -336,6 +376,53 @@ function TextEditor({
         textAlign: numeric ? 'right' : 'left',
       }}
     />
+  )
+}
+
+function PercentEditor({
+  initial,
+  onDone,
+}: {
+  initial: string
+  onDone: (raw: string | undefined, nav?: 'down' | 'right') => void
+}) {
+  const [val, setVal] = useState(initial)
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    ref.current?.focus()
+    ref.current?.select()
+  }, [])
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: 'var(--row-h)' }}>
+      <input
+        ref={ref}
+        value={val}
+        inputMode="decimal"
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={() => onDone(val.trim())}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            onDone(val.trim(), 'down')
+          } else if (e.key === 'Tab') {
+            e.preventDefault()
+            onDone(val.trim(), 'right')
+          } else if (e.key === 'Escape') {
+            onDone(undefined)
+          }
+        }}
+        style={{
+          width: '100%',
+          height: 'calc(var(--row-h) - 2px)',
+          border: '2px solid var(--accent)',
+          borderRadius: 3,
+          padding: '0 18px 0 6px',
+          outline: 'none',
+          textAlign: 'right',
+        }}
+      />
+      <span style={{ position: 'absolute', right: 6, color: 'var(--text-faint)', pointerEvents: 'none' }}>%</span>
+    </div>
   )
 }
 

@@ -6,6 +6,7 @@
 
 import { getPool, query, queryOne, slugify } from '@retentionos/db'
 import { coerceValue, coerceValues, isFieldType, validateFieldOptions } from './fieldTypes'
+import { parseFormula, referencedFieldIds } from './formula'
 import { enrichRecords, syncLinksForField } from './links'
 import { EngineError, isComputedType } from './types'
 import type {
@@ -280,6 +281,32 @@ async function assertRelationOptions(
       }
     }
   }
+  if (type === 'formula') {
+    // Every referenced field must exist ON THIS table and be number/currency/percent. No
+    // chaining in v1: a formula may not reference another formula/rollup/lookup (or any
+    // non-numeric field). The expression itself was already syntax-checked upstream.
+    const ast = parseFormula(options.expression ?? '')
+    const refIds = referencedFieldIds(ast)
+    if (refIds.length === 0) return
+    const tableFields = await query<EngineField>(
+      `select ${FIELD_COLS} from public.engine_fields where table_id = $1`,
+      [tableId],
+    )
+    const byId = new Map(tableFields.map((f) => [f.id, f]))
+    const NUMERIC: FieldType[] = ['number', 'currency', 'percent']
+    for (const id of refIds) {
+      const ref = byId.get(id)
+      if (!ref) {
+        throw new EngineError(`Formula references field "${id}" that isn't on this table.`, 'bad_options')
+      }
+      if (!NUMERIC.includes(ref.type)) {
+        throw new EngineError(
+          `Formula can only reference number/currency/percent fields; "${ref.name}" is ${ref.type}.`,
+          'bad_options',
+        )
+      }
+    }
+  }
 }
 
 export async function createField(
@@ -398,6 +425,10 @@ export async function updateField(
         linkedTableId: existing.options.linkedTableId,
         inverseFieldId: existing.options.inverseFieldId,
       }
+    }
+    // A formula's new expression must re-pass the same-table/numeric-field checks as on create.
+    if (existing.type === 'formula') {
+      await assertRelationOptions(orgId, tableId, 'formula', options)
     }
     params.push(JSON.stringify(options))
     sets.push(`options = $${params.length}::jsonb`)
@@ -786,7 +817,7 @@ export async function queryRecords(
     if (isComputedType(field.type) || field.type === 'linked_record') {
       throw new EngineError(`Cannot filter on the computed/linked field "${field.name}".`, 'bad_input')
     }
-    const numeric = field.type === 'number' || field.type === 'currency'
+    const numeric = field.type === 'number' || field.type === 'currency' || field.type === 'percent'
     const path = `(values ->> ${pushParam(params, f.fieldId)})`
     const lhs = numeric ? `(${path})::numeric` : path
     switch (f.op) {
@@ -834,7 +865,7 @@ export async function queryRecords(
     if (isComputedType(field.type) || field.type === 'linked_record') {
       throw new EngineError(`Cannot sort on the computed/linked field "${field.name}".`, 'bad_input')
     }
-    const numeric = field.type === 'number' || field.type === 'currency'
+    const numeric = field.type === 'number' || field.type === 'currency' || field.type === 'percent'
     const expr = numeric
       ? `(values ->> ${pushParam(params, s.fieldId)})::numeric`
       : `(values ->> ${pushParam(params, s.fieldId)})`

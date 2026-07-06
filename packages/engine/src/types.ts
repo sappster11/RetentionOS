@@ -33,6 +33,9 @@ export type FieldType =
   | 'autonumber'
   | 'created_time'
   | 'last_modified_time'
+  // Phase B.5 — Sales CRM engine additions
+  | 'percent'
+  | 'formula'
 
 export const FIELD_TYPES: readonly FieldType[] = [
   'text',
@@ -41,6 +44,7 @@ export const FIELD_TYPES: readonly FieldType[] = [
   'multi_select',
   'number',
   'currency',
+  'percent',
   'checkbox',
   'date',
   'datetime',
@@ -50,6 +54,7 @@ export const FIELD_TYPES: readonly FieldType[] = [
   'linked_record',
   'lookup',
   'rollup',
+  'formula',
   'autonumber',
   'created_time',
   'last_modified_time',
@@ -59,6 +64,7 @@ export const FIELD_TYPES: readonly FieldType[] = [
 export const COMPUTED_FIELD_TYPES: readonly FieldType[] = [
   'lookup',
   'rollup',
+  'formula',
   'autonumber',
   'created_time',
   'last_modified_time',
@@ -103,6 +109,13 @@ export interface FieldOptions {
   targetFieldId?: string
   /** Rollup only: how to aggregate the collected target values. */
   aggregate?: RollupAggregate
+  // --- formula ---
+  /**
+   * Formula only: an arithmetic expression over same-record number/currency/percent fields,
+   * using {fld:FIELD_ID} tokens, numeric literals, + - * / and parentheses. Stored canonically
+   * (field IDs, not names); the UI resolves names for display.
+   */
+  expression?: string
 }
 
 export type ViewType = 'grid' | 'kanban'

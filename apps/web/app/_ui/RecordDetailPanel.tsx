@@ -35,6 +35,7 @@ function relativeTime(iso: string): string {
 const TYPE_BADGE: Partial<Record<EngineField['type'], string>> = {
   lookup: 'Lookup',
   rollup: 'Rollup',
+  formula: 'Formula',
   autonumber: 'Autonumber',
   created_time: 'Created',
   last_modified_time: 'Modified',

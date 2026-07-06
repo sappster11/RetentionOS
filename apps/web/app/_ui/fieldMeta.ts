@@ -7,6 +7,7 @@ import type { FieldType } from '@retentionos/engine'
 export const COMPUTED_FIELD_TYPES: readonly FieldType[] = [
   'lookup',
   'rollup',
+  'formula',
   'autonumber',
   'created_time',
   'last_modified_time',

@@ -4,6 +4,7 @@
 // (createRecord/updateRecord, UI, API, future MCP) goes through here — there is no
 // second, looser validator anywhere.
 
+import { parseFormula } from './formula'
 import { EngineError, FIELD_TYPES, isComputedType } from './types'
 import type { Attachment, EngineField, FieldOptions, FieldType, SelectChoice } from './types'
 
@@ -74,6 +75,13 @@ export function validateFieldOptions(type: FieldType, options: FieldOptions | un
     }
     return opts
   }
+  if (type === 'formula') {
+    // Syntactic check only; the referenced fields' existence + type is verified with a DB
+    // round-trip in the engine (assertRelationOptions). parseFormula throws bad_options on
+    // any syntax error. The expression is stored verbatim (canonical {fld:ID} tokens).
+    parseFormula(opts.expression ?? '')
+    return opts
+  }
   return opts
 }
 
@@ -130,6 +138,28 @@ export function coerceValue(field: EngineField, raw: unknown): unknown {
       const n = typeof raw === 'string' ? Number(raw) : raw
       if (typeof n !== 'number' || Number.isNaN(n) || !Number.isFinite(n)) {
         throw new EngineError(`Field "${field.name}" expects a number, got: ${String(raw)}`, 'bad_value')
+      }
+      return n
+    }
+
+    case 'percent': {
+      // Stored as a fraction (0.5 == 50%). Accept a number, a numeric string, or a
+      // "%"-suffixed string ("50%" -> 0.5). No clamping — >1 and negatives are valid.
+      let n: number
+      if (typeof raw === 'number') {
+        n = raw
+      } else if (typeof raw === 'string') {
+        const trimmed = raw.trim()
+        if (trimmed.endsWith('%')) {
+          n = Number(trimmed.slice(0, -1).trim()) / 100
+        } else {
+          n = Number(trimmed)
+        }
+      } else {
+        throw new EngineError(`Field "${field.name}" expects a percent number.`, 'bad_value')
+      }
+      if (!Number.isFinite(n)) {
+        throw new EngineError(`Field "${field.name}" expects a percent number, got: ${String(raw)}`, 'bad_value')
       }
       return n
     }
@@ -226,6 +256,7 @@ export function coerceValue(field: EngineField, raw: unknown): unknown {
 
     case 'lookup':
     case 'rollup':
+    case 'formula':
     case 'autonumber':
     case 'created_time':
     case 'last_modified_time': {

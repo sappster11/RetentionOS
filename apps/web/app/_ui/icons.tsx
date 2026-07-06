@@ -144,6 +144,21 @@ const FIELD_ICONS: Record<FieldType, React.ReactNode> = {
       <polyline points="3 3 3 8 8 8" />
     </>
   ),
+  percent: (
+    <>
+      <line x1="19" y1="5" x2="5" y2="19" />
+      <circle cx="6.5" cy="6.5" r="2.5" />
+      <circle cx="17.5" cy="17.5" r="2.5" />
+    </>
+  ),
+  formula: (
+    <>
+      <path d="M18 4H9a3 3 0 0 0-3 3v13" />
+      <line x1="4" y1="11" x2="10" y2="11" />
+      <line x1="14" y1="9" x2="19" y2="19" />
+      <line x1="19" y1="9" x2="14" y2="19" />
+    </>
+  ),
 }
 
 export function FieldIcon({ type, size = 14, style }: { type: FieldType; size?: number; style?: CSSProperties }) {

@@ -14,6 +14,7 @@ const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   multi_select: 'Multi select',
   number: 'Number',
   currency: 'Currency',
+  percent: 'Percent',
   checkbox: 'Checkbox',
   date: 'Date',
   datetime: 'Date & time',
@@ -23,6 +24,7 @@ const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   linked_record: 'Link to another record',
   lookup: 'Lookup',
   rollup: 'Rollup',
+  formula: 'Formula',
   autonumber: 'Autonumber',
   created_time: 'Created time',
   last_modified_time: 'Last modified time',
@@ -71,16 +73,35 @@ export function AddFieldPopover({
   const [aggregate, setAggregate] = useState('count')
   const [tables, setTables] = useState<EngineTable[]>([])
   const [targetFields, setTargetFields] = useState<EngineField[]>([])
+  const [expression, setExpression] = useState('')
+  const [insertFieldId, setInsertFieldId] = useState('')
 
   const isSelect = type === 'single_select' || type === 'multi_select'
   const isLinked = type === 'linked_record'
   const isLookup = type === 'lookup'
   const isRollup = type === 'rollup'
+  const isFormula = type === 'formula'
   const needsTables = isLinked
   const needsLinkPicker = isLookup || isRollup
 
   // linked_record fields already on THIS table (the basis for lookup/rollup).
   const linkFields = useMemo(() => fields.filter((f) => f.type === 'linked_record'), [fields])
+  // Numeric fields on THIS table a formula may reference (number/currency/percent).
+  const numericFields = useMemo(
+    () => fields.filter((f) => f.type === 'number' || f.type === 'currency' || f.type === 'percent'),
+    [fields],
+  )
+  const fieldNameById = useMemo(() => new Map(fields.map((f) => [f.id, f.name])), [fields])
+
+  // Render {fld:ID} tokens as {fld:Name} for the textarea; stored value stays canonical (IDs).
+  function displayExpression(expr: string): string {
+    return expr.replace(/\{fld:([^}]+)\}/g, (_, id) => `{fld:${fieldNameById.get(id.trim()) ?? id}}`)
+  }
+  function insertToken(id: string) {
+    if (!id) return
+    setExpression((e) => `${e}{fld:${id}}`)
+    setInsertFieldId('')
+  }
 
   // Load table list once (for the linked_record target picker).
   useEffect(() => {
@@ -113,6 +134,7 @@ export function AddFieldPopover({
         aggregate: aggregate as FieldOptions['aggregate'],
         ...(aggregate === 'count' && !targetFieldId ? {} : { targetFieldId }),
       }
+    if (isFormula) return { expression: expression.trim() }
     return undefined
   }
 
@@ -121,6 +143,7 @@ export function AddFieldPopover({
     if (isLinked) return !!linkedTableId
     if (isLookup) return !!recordLinkFieldId && !!targetFieldId
     if (isRollup) return !!recordLinkFieldId && (aggregate === 'count' || !!targetFieldId)
+    if (isFormula) return !!expression.trim()
     return true
   }
 
@@ -274,11 +297,55 @@ export function AddFieldPopover({
           </>
         ) : null}
 
-        {COMPUTED_FIELD_TYPES.includes(type) ? (
+        {isFormula ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+              Expression
+              <textarea
+                value={expression}
+                onChange={(e) => setExpression(e.target.value)}
+                placeholder="{fld:…} * 0.5 + 2"
+                rows={3}
+                style={{ ...inputStyle, resize: 'vertical', fontFamily: 'ui-monospace, monospace', fontSize: 12 }}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+              Insert field
+              {numericFields.length === 0 ? (
+                <span style={{ color: 'var(--text-faint)', fontSize: 11 }}>
+                  Add a number, currency, or percent field first.
+                </span>
+              ) : (
+                <select
+                  value={insertFieldId}
+                  onChange={(e) => insertToken(e.target.value)}
+                  style={inputStyle}
+                >
+                  <option value="">— insert a field —</option>
+                  {numericFields.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </label>
+            {expression.trim() ? (
+              <p style={{ fontSize: 11, color: 'var(--text-faint)', margin: 0, wordBreak: 'break-word' }}>
+                {displayExpression(expression)}
+              </p>
+            ) : null}
+            <p style={{ fontSize: 11, color: 'var(--text-faint)', margin: 0 }}>
+              Arithmetic (+ − × ÷, parentheses) over number/currency/percent fields. Read-only.
+            </p>
+          </div>
+        ) : null}
+
+        {COMPUTED_FIELD_TYPES.includes(type) && !isFormula ? (
           <p style={{ fontSize: 11, color: 'var(--text-faint)', margin: 0 }}>
             This is a computed, read-only field.
           </p>
-        ) : (
+        ) : COMPUTED_FIELD_TYPES.includes(type) ? null : (
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
             <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} />
             Required

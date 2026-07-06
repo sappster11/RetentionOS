@@ -7,6 +7,7 @@
 // so engine.ts's create/updateRecord stay readable.
 
 import { query } from '@retentionos/db'
+import { evaluateFormula, parseFormula } from './formula'
 import { EngineError, isComputedType } from './types'
 import type {
   Attachment,
@@ -175,6 +176,8 @@ export async function enrichRecords(
         const linkField = f.options.recordLinkFieldId ? byId.get(f.options.recordLinkFieldId) : undefined
         const targetFields = fieldsByTable.get(linkField?.options.linkedTableId ?? '')
         display[f.id] = computeRollup(f, rec, linkField, targetFields, linksByKey, targetRecById)
+      } else if (f.type === 'formula') {
+        display[f.id] = computeFormula(f, rec, byId)
       } else if (f.type === 'attachment') {
         display[f.id] = Array.isArray(rec.values[f.id]) ? (rec.values[f.id] as Attachment[]) : []
       } else if (f.type === 'autonumber') {
@@ -299,6 +302,37 @@ function computeRollup(
   if (aggregate === 'min') return round(Math.min(...nums))
   if (aggregate === 'max') return round(Math.max(...nums))
   return null
+}
+
+/**
+ * Compute a formula field for one record. Arithmetic over this record's own number/currency/
+ * percent fields. A referenced field that's been deleted or is no longer numeric makes the
+ * result null (same "compute as empty, not stale" rule as lookups/rollups). A malformed stored
+ * expression (shouldn't happen — validated on write) also yields null rather than throwing.
+ */
+function computeFormula(
+  field: EngineField,
+  rec: EngineRecord,
+  byId: Map<string, EngineField>,
+): number | null {
+  const expression = field.options.expression
+  if (!expression) return null
+  let ast
+  try {
+    ast = parseFormula(expression)
+  } catch {
+    return null
+  }
+  // Build the value map, coercing each referenced field's stored value. A ref that's gone or
+  // non-numeric is left absent so evaluateFormula sees null and propagates it.
+  const values: Record<string, unknown> = {}
+  for (const [id, raw] of Object.entries(rec.values)) {
+    const ref = byId.get(id)
+    if (ref && (ref.type === 'number' || ref.type === 'currency' || ref.type === 'percent')) {
+      values[id] = raw
+    }
+  }
+  return evaluateFormula(ast, values)
 }
 
 // ---------------------------------------------------------------------------
