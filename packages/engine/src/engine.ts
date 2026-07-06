@@ -11,6 +11,7 @@ import { enrichRecords, syncLinksForField } from './links'
 import { EngineError, isComputedType } from './types'
 import type {
   Actor,
+  EngineBase,
   EngineField,
   EngineRecord,
   EngineRecordRevision,
@@ -31,8 +32,11 @@ import type {
 // ---------------------------------------------------------------------------
 // Column lists (kept in one place so selects stay consistent).
 // ---------------------------------------------------------------------------
+const BASE_COLS = `
+  id, organization_id, name, slug, icon, position,
+  created_by_type, created_by_id, created_at, updated_at`
 const TABLE_COLS = `
-  id, organization_id, name, slug, icon, description, position,
+  id, organization_id, name, slug, icon, description, base_id, position,
   created_by_type, created_by_id, created_at, updated_at`
 const FIELD_COLS = `
   id, table_id, name, type, options, position, required,
@@ -46,6 +50,143 @@ const REVISION_COLS = `
   id, record_id, table_id, organization_id, actor_type, actor_id, op, diff, created_at`
 
 // ---------------------------------------------------------------------------
+// Bases — workspace groupings of tables ("Sales CRM", "Client Hub").
+// ---------------------------------------------------------------------------
+
+export interface CreateBaseInput {
+  name: string
+  slug?: string
+  icon?: string | null
+}
+
+/** Ensure the base slug is unique within the org, suffixing -2, -3, … if needed. */
+async function uniqueBaseSlug(orgId: string, base: string): Promise<string> {
+  const root = slugify(base) || 'base'
+  let candidate = root
+  let n = 1
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const clash = await queryOne<{ id: string }>(
+      'select id from public.engine_bases where organization_id = $1 and slug = $2',
+      [orgId, candidate],
+    )
+    if (!clash) return candidate
+    n += 1
+    candidate = `${root}-${n}`
+  }
+}
+
+export async function createBase(
+  orgId: string,
+  input: CreateBaseInput,
+  actor: Actor,
+): Promise<EngineBase> {
+  if (!input.name?.trim()) throw new EngineError('Base name is required.', 'bad_input')
+  const slug = await uniqueBaseSlug(orgId, input.slug ?? input.name)
+  const pos = await nextPosition('engine_bases', 'organization_id', orgId)
+  const row = await queryOne<EngineBase>(
+    `insert into public.engine_bases
+       (organization_id, name, slug, icon, position, created_by_type, created_by_id)
+     values ($1,$2,$3,$4,$5,$6::public.engine_actor_type,$7)
+     returning ${BASE_COLS}`,
+    [orgId, input.name.trim(), slug, input.icon ?? null, pos, actor.type, actor.id ?? null],
+  )
+  if (!row) throw new EngineError('Failed to create base.')
+  return row
+}
+
+export interface UpdateBasePatch {
+  name?: string
+  icon?: string | null
+  position?: number
+}
+
+export async function updateBase(
+  orgId: string,
+  baseId: string,
+  patch: UpdateBasePatch,
+): Promise<EngineBase> {
+  const sets: string[] = []
+  const params: unknown[] = [orgId, baseId]
+  if (patch.name !== undefined) {
+    if (!patch.name.trim()) throw new EngineError('Base name is required.', 'bad_input')
+    params.push(patch.name.trim())
+    sets.push(`name = $${params.length}`)
+  }
+  if (patch.icon !== undefined) {
+    params.push(patch.icon)
+    sets.push(`icon = $${params.length}`)
+  }
+  if (patch.position !== undefined) {
+    params.push(patch.position)
+    sets.push(`position = $${params.length}`)
+  }
+  if (sets.length === 0) {
+    const existing = await getBase(orgId, baseId)
+    if (!existing) throw new EngineError('Base not found.', 'not_found')
+    return existing
+  }
+  const row = await queryOne<EngineBase>(
+    `update public.engine_bases set ${sets.join(', ')}
+     where organization_id = $1 and id = $2
+     returning ${BASE_COLS}`,
+    params,
+  )
+  if (!row) throw new EngineError('Base not found.', 'not_found')
+  return row
+}
+
+/** Delete a base — only when EMPTY. A base that still contains tables is rejected
+ * (bad_input): move its tables to another base (or ungroup them) first. */
+export async function deleteBase(orgId: string, baseId: string): Promise<void> {
+  const base = await getBase(orgId, baseId)
+  if (!base) throw new EngineError('Base not found.', 'not_found')
+  const occupied = await queryOne<{ id: string }>(
+    'select id from public.engine_tables where organization_id = $1 and base_id = $2 limit 1',
+    [orgId, baseId],
+  )
+  if (occupied) {
+    throw new EngineError(
+      'Base still contains tables — move or delete them before deleting the base.',
+      'bad_input',
+    )
+  }
+  await query('delete from public.engine_bases where organization_id = $1 and id = $2', [
+    orgId,
+    baseId,
+  ])
+}
+
+export async function listBases(orgId: string): Promise<EngineBase[]> {
+  return query<EngineBase>(
+    `select ${BASE_COLS} from public.engine_bases
+     where organization_id = $1 order by position asc, created_at asc`,
+    [orgId],
+  )
+}
+
+export async function getBase(orgId: string, baseId: string): Promise<EngineBase | null> {
+  return queryOne<EngineBase>(
+    `select ${BASE_COLS} from public.engine_bases where organization_id = $1 and id = $2`,
+    [orgId, baseId],
+  )
+}
+
+export async function getBaseBySlug(orgId: string, slug: string): Promise<EngineBase | null> {
+  return queryOne<EngineBase>(
+    `select ${BASE_COLS} from public.engine_bases where organization_id = $1 and slug = $2`,
+    [orgId, slug],
+  )
+}
+
+/** Confirm a base belongs to the org (used before table create/move). */
+async function assertBase(orgId: string, baseId: string): Promise<EngineBase> {
+  const b = await getBase(orgId, baseId)
+  if (!b) throw new EngineError('baseId does not reference a base in this org.', 'bad_input')
+  return b
+}
+
+// ---------------------------------------------------------------------------
 // Tables
 // ---------------------------------------------------------------------------
 
@@ -54,6 +195,8 @@ export interface CreateTableInput {
   slug?: string
   icon?: string | null
   description?: string | null
+  /** Base to create the table in; omitted/null = ungrouped ("Workspace"). */
+  baseId?: string | null
 }
 
 /** Ensure the slug is unique within the org, suffixing -2, -3, … if needed. */
@@ -80,14 +223,15 @@ export async function createTable(
   actor: Actor,
 ): Promise<EngineTable> {
   if (!input.name?.trim()) throw new EngineError('Table name is required.', 'bad_input')
+  if (input.baseId) await assertBase(orgId, input.baseId)
   const slug = await uniqueTableSlug(orgId, input.slug ?? input.name)
   const pos = await nextPosition('engine_tables', 'organization_id', orgId)
   const row = await queryOne<EngineTable>(
     `insert into public.engine_tables
-       (organization_id, name, slug, icon, description, position, created_by_type, created_by_id)
-     values ($1,$2,$3,$4,$5,$6,$7::public.engine_actor_type,$8)
+       (organization_id, name, slug, icon, description, base_id, position, created_by_type, created_by_id)
+     values ($1,$2,$3,$4,$5,$6,$7,$8::public.engine_actor_type,$9)
      returning ${TABLE_COLS}`,
-    [orgId, input.name.trim(), slug, input.icon ?? null, input.description ?? null, pos, actor.type, actor.id ?? null],
+    [orgId, input.name.trim(), slug, input.icon ?? null, input.description ?? null, input.baseId ?? null, pos, actor.type, actor.id ?? null],
   )
   if (!row) throw new EngineError('Failed to create table.')
   return row
@@ -97,6 +241,8 @@ export interface UpdateTablePatch {
   name?: string
   icon?: string | null
   description?: string | null
+  /** Move the table into a base (uuid) or ungroup it (null). */
+  baseId?: string | null
   position?: number
 }
 
@@ -105,6 +251,7 @@ export async function updateTable(
   tableId: string,
   patch: UpdateTablePatch,
 ): Promise<EngineTable> {
+  if (patch.baseId != null) await assertBase(orgId, patch.baseId)
   const sets: string[] = []
   const params: unknown[] = [orgId, tableId]
   if (patch.name !== undefined) {
@@ -118,6 +265,10 @@ export async function updateTable(
   if (patch.description !== undefined) {
     params.push(patch.description)
     sets.push(`description = $${params.length}`)
+  }
+  if (patch.baseId !== undefined) {
+    params.push(patch.baseId)
+    sets.push(`base_id = $${params.length}`)
   }
   if (patch.position !== undefined) {
     params.push(patch.position)
@@ -1081,7 +1232,7 @@ export async function listRecordRevisions(
 
 /** Next append position = max(position)+1 within a parent scope. */
 async function nextPosition(
-  table: 'engine_tables' | 'engine_fields' | 'engine_records' | 'engine_views',
+  table: 'engine_bases' | 'engine_tables' | 'engine_fields' | 'engine_records' | 'engine_views',
   scopeCol: 'organization_id' | 'table_id',
   scopeVal: string,
 ): Promise<number> {

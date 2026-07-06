@@ -4,6 +4,13 @@
 export * from './types'
 export { coerceValue, coerceValues, validateFieldOptions, isFieldType } from './fieldTypes'
 export {
+  // bases
+  createBase,
+  updateBase,
+  deleteBase,
+  listBases,
+  getBase,
+  getBaseBySlug,
   // tables
   createTable,
   updateTable,
@@ -35,6 +42,8 @@ export {
   listRecordRevisions,
 } from './engine'
 export type {
+  CreateBaseInput,
+  UpdateBasePatch,
   CreateTableInput,
   UpdateTablePatch,
   CreateFieldInput,

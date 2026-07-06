@@ -177,6 +177,22 @@ export interface ViewConfig {
   groupByFieldId?: string | null
 }
 
+/** A base — a workspace grouping of tables ("Sales CRM", "Client Hub"), mirroring
+ * migration 0011. Tables reference a base via base_id (nullable: ungrouped tables render
+ * under a default "Workspace" group). */
+export interface EngineBase {
+  id: string
+  organization_id: string
+  name: string
+  slug: string
+  icon: string | null
+  position: number
+  created_by_type: ActorType
+  created_by_id: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface EngineTable {
   id: string
   organization_id: string
@@ -184,6 +200,8 @@ export interface EngineTable {
   slug: string
   icon: string | null
   description: string | null
+  /** The base this table belongs to; null = ungrouped (default "Workspace" group). */
+  base_id: string | null
   position: number
   created_by_type: ActorType
   created_by_id: string | null
