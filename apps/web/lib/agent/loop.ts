@@ -1,7 +1,9 @@
 // The in-app agent's tool-use loop: stream a model turn, execute any requested engine
 // tools via the SHARED tool defs (@retentionos/mcp-engine/tools — agent-parity law),
-// feed results back, repeat. Transport-agnostic: the caller supplies an emit() sink
-// (the route turns events into SSE) and an Anthropic-shaped client (tests inject a mock).
+// feed results back, repeat. Transport-agnostic AND provider-agnostic: the caller
+// supplies an emit() sink (the route turns events into SSE) and a client satisfying
+// the Anthropic-shaped AnthropicClientLike seam below — the real Anthropic SDK client,
+// the OpenRouter adapter (./openrouter.ts), and test mocks all fit it.
 import type { EngineToolDef, ToolResult, ToolRunContext } from '@retentionos/mcp-engine/tools'
 import { toAnthropicTool } from './toolSchema'
 
@@ -42,8 +44,9 @@ export interface MessageStreamLike {
   finalMessage(): Promise<FinalMessageLike>
 }
 
-/** Structural subset of `Anthropic` from @anthropic-ai/sdk — `client.messages.stream()`.
- * Method-parameter bivariance makes the real client assignable here. */
+/** The loop's PROVIDER SEAM: structural subset of `Anthropic` from @anthropic-ai/sdk —
+ * `client.messages.stream()`. Method-parameter bivariance makes the real client
+ * assignable here; other providers adapt to this shape (see ./openrouter.ts). */
 export interface AnthropicClientLike {
   messages: { stream(params: Record<string, unknown>): MessageStreamLike }
 }

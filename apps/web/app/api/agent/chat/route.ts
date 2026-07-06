@@ -5,9 +5,12 @@
 // persistence is a noted fast-follow). The response is an SSE stream of
 // AgentStreamEvent JSON: text deltas, tool action chips ({tool, summary}), error, done.
 //
-// Keyless mode: when ANTHROPIC_API_KEY is absent this returns 200 {disabled: true}
-// (GET too, so the panel can probe on mount) — the UI shows setup guidance instead of
-// crashing. Model: ROS_AGENT_MODEL env, default "claude-sonnet-5".
+// Provider selection (see lib/agent/provider.ts): ANTHROPIC_API_KEY → Anthropic SDK
+// (first-class); else OPENROUTER_API_KEY → OpenRouter adapter (OpenAI-compatible,
+// lib/agent/openrouter.ts). Keyless mode: when NEITHER key is set this returns 200
+// {disabled: true} (GET too, so the panel can probe on mount) — the UI shows setup
+// guidance instead of crashing. Model: ROS_AGENT_MODEL env, default "claude-sonnet-5"
+// (Anthropic) / "anthropic/claude-sonnet-5" (OpenRouter).
 //
 // Tools are the SHARED engine tool defs from @retentionos/mcp-engine/tools (agent-parity
 // law — same service layer as the UI, REST API, and MCP server). Handlers run with the
@@ -16,7 +19,14 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { tools } from '@retentionos/mcp-engine/tools'
 import { errorResponse, json, readJson, resolveOrgId } from '@/lib/api'
-import { runAgentLoop, type AgentStreamEvent, type ChatTurn } from '@/lib/agent/loop'
+import {
+  runAgentLoop,
+  type AgentStreamEvent,
+  type AnthropicClientLike,
+  type ChatTurn,
+} from '@/lib/agent/loop'
+import { createOpenRouterClient } from '@/lib/agent/openrouter'
+import { chooseAgentProvider } from '@/lib/agent/provider'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,13 +39,9 @@ Operating rules:
 - Keep answers short. After making changes, state exactly what changed (tables, fields, records, counts) based on tool results — never guess or overstate.
 - If a tool returns an error, say what failed and what you'd need to fix it.`
 
-function agentModel(): string {
-  return process.env.ROS_AGENT_MODEL || 'claude-sonnet-5'
-}
-
 /** Probe endpoint for the chat panel: is the agent configured? */
 export async function GET() {
-  return json({ disabled: !process.env.ANTHROPIC_API_KEY })
+  return json({ disabled: chooseAgentProvider() === null })
 }
 
 /** Validate the client-held session shape. Returns null when invalid. */
@@ -54,8 +60,8 @@ function parseMessages(raw: unknown): ChatTurn[] | null {
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) return json({ disabled: true })
+  const config = chooseAgentProvider()
+  if (!config) return json({ disabled: true })
 
   let messages: ChatTurn[] | null
   try {
@@ -82,14 +88,23 @@ export async function POST(request: Request) {
     return errorResponse(err)
   }
 
-  const client = new Anthropic({ apiKey })
-  const model = agentModel()
+  const client: AnthropicClientLike =
+    config.provider === 'anthropic'
+      ? new Anthropic({ apiKey: config.apiKey })
+      : createOpenRouterClient({ apiKey: config.apiKey, signal: request.signal })
+  const model = config.model
   const encoder = new TextEncoder()
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const emit = (event: AgentStreamEvent) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+        // The client may have disconnected mid-stream (controller closed) —
+        // never let a final emit turn a clean stop into a stream error.
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+        } catch {
+          // stream already closed — nothing left to notify
+        }
       }
       try {
         await runAgentLoop({

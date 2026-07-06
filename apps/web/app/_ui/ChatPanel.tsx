@@ -27,7 +27,8 @@ export function ChatPanel({ onClose }: { onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
-  // null = probing on mount; true = no ANTHROPIC_API_KEY on the server.
+  // null = probing on mount; true = no agent key (ANTHROPIC_API_KEY /
+  // OPENROUTER_API_KEY) on the server.
   const [agentDisabled, setAgentDisabled] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -224,7 +225,8 @@ export function ChatPanel({ onClose }: { onClose: () => void }) {
             <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
               Agent not configured
             </div>
-            Set <code style={{ fontSize: 11.5 }}>ANTHROPIC_API_KEY</code> in Vercel → Settings →
+            Set <code style={{ fontSize: 11.5 }}>ANTHROPIC_API_KEY</code> or{' '}
+            <code style={{ fontSize: 11.5 }}>OPENROUTER_API_KEY</code> in Vercel → Settings →
             Environment Variables (or your local <code style={{ fontSize: 11.5 }}>.env</code>) to
             enable the agent. External agents already have full access via MCP.
           </div>
