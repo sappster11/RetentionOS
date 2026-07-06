@@ -426,6 +426,32 @@ describe('mcp-engine tools — review-fix behaviors', () => {
     expect(upd.field.options.currencySymbol).toBe('$')
   })
 
+  it('ToolRunContext pins list_bases and stamps the create_base actor (ctx parity)', async () => {
+    const pinnedOrg = await ensureTestOrg()
+    const otherOrg = await ensureTestOrg()
+    const ctx = { orgId: pinnedOrg, actor: { type: 'agent' as const, id: 'ctx-agent' } }
+
+    // Per-call organization_id differing from the ctx org pin → forbidden, same as the
+    // env pin (these two tools used to bypass ctx entirely).
+    const res = await getTool('list_bases').run({ organization_id: otherOrg }, ctx)
+    expect(res.isError).toBe(true)
+    expect(JSON.parse(res.content[0]!.text).error.code).toBe('forbidden')
+
+    // create_base attributes to the ctx actor (not the env-derived agentActor) and lands
+    // in the pinned org.
+    const created = await getTool('create_base').run({ name: 'Ctx Base' }, ctx)
+    expect(created.isError).toBeFalsy()
+    const base = JSON.parse(created.content[0]!.text).base
+    expect(base.created_by_type).toBe('agent')
+    expect(base.created_by_id).toBe('ctx-agent')
+    expect(base.organization_id).toBe(pinnedOrg)
+
+    const listed = await getTool('list_bases').run({}, ctx)
+    expect(listed.isError).toBeFalsy()
+    const names = JSON.parse(listed.content[0]!.text).bases.map((b: any) => b.name)
+    expect(names).toContain('Ctx Base')
+  })
+
   it('RETENTIONOS_ORG_ID pins the server: a differing per-call org is forbidden', async () => {
     const pinnedOrg = await ensureTestOrg()
     const otherOrg = await ensureTestOrg()
@@ -480,5 +506,36 @@ describe('mcp-engine tools — bases', () => {
     // Unknown base ref → not_found.
     const err = await callExpectError('list_tables', { base: 'nope', organization_id: org })
     expect(err.code).toBe('not_found')
+  })
+
+  it('update_table moves a table between bases (base) and ungroups it (clear_base)', async () => {
+    const org = await ensureTestOrg()
+    const crm = await call('create_base', { name: 'Move CRM', organization_id: org })
+    const hub = await call('create_base', { name: 'Move Hub', organization_id: org })
+    const t = await call('create_table', { name: 'Movers', base: crm.base.id, organization_id: org })
+    expect(t.table.base_id).toBe(crm.base.id)
+
+    // Move by base name (resolveBaseId: id / slug / name all work).
+    const moved = await call('update_table', { table: t.table.id, base: 'Move Hub', organization_id: org })
+    expect(moved.table.base_id).toBe(hub.base.id)
+
+    // Ungroup back to the default "Workspace".
+    const cleared = await call('update_table', { table: t.table.id, clear_base: true, organization_id: org })
+    expect(cleared.table.base_id).toBeNull()
+
+    // base + clear_base together is contradictory → bad_input, nothing changes.
+    const both = await callExpectError('update_table', {
+      table: t.table.id,
+      base: crm.base.id,
+      clear_base: true,
+      organization_id: org,
+    })
+    expect(both.code).toBe('bad_input')
+
+    // Unknown base ref → not_found; a patch WITHOUT base keys leaves base_id untouched.
+    const nf = await callExpectError('update_table', { table: t.table.id, base: 'nope', organization_id: org })
+    expect(nf.code).toBe('not_found')
+    const renamed = await call('update_table', { table: t.table.id, name: 'Movers 2', organization_id: org })
+    expect(renamed.table.base_id).toBeNull()
   })
 })

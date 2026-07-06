@@ -309,6 +309,79 @@ describe('submitForm', () => {
   })
 })
 
+describe('submitForm — engine-required fields never escape as EngineError "required"', () => {
+  let table: EngineTable
+  let reqName: EngineField
+  let extra: EngineField
+
+  beforeAll(async () => {
+    table = await createTable(orgId, { name: 'Forms Required' }, A)
+    reqName = await createField(orgId, table.id, { name: 'Req Name', type: 'text', required: true }, A)
+    extra = await createField(orgId, table.id, { name: 'Extra', type: 'text' }, A)
+  })
+
+  it('(a) engine-required field ON the form: empty submission → inline field error, provided → ok', async () => {
+    // Form-level required is FALSE — the engine flag alone must still gate the submission.
+    const view = await createView(orgId, table.id, {
+      name: 'Req on form',
+      type: 'form',
+      config: { fields: [{ fieldId: reqName.id }, { fieldId: extra.id }] },
+    })
+    const slug = view.config.publicSlug!
+
+    const err = await submitForm(slug, { [extra.id]: 'x' }).then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(FormSubmissionError)
+    expect((err as FormSubmissionError).code).toBe('form_validation')
+    expect((err as FormSubmissionError).fieldErrors[reqName.id]).toMatch(/required/i)
+
+    const { record } = await submitForm(slug, { [reqName.id]: 'Present' })
+    expect(record.values[reqName.id]).toBe('Present')
+  })
+
+  it('(b) engine-required field NOT on the form → one generic form-level error, no field names', async () => {
+    const view = await createView(orgId, table.id, {
+      name: 'Req off form',
+      type: 'form',
+      config: { fields: [{ fieldId: extra.id }] },
+    })
+    const err = await submitForm(view.config.publicSlug!, { [extra.id]: 'x' }).then(
+      () => null,
+      (e: unknown) => e,
+    )
+    // FormSubmissionError (renderable), NOT the engine's 'required' EngineError — and the
+    // message must not leak the internal field name.
+    expect(err).toBeInstanceOf(FormSubmissionError)
+    expect((err as FormSubmissionError).code).toBe('form_validation')
+    expect((err as FormSubmissionError).message).toBe(
+      'This form is missing a required field — contact the form owner.',
+    )
+    expect((err as FormSubmissionError).message).not.toContain('Req Name')
+    expect((err as FormSubmissionError).fieldErrors).toEqual({})
+  })
+})
+
+describe('updateView — non-form configs cannot squat the form-slug namespace', () => {
+  it('patching a grid view with a publicSlug key stores config without it', async () => {
+    const view = await createView(orgId, leads.id, { name: 'Grid squatter' })
+    expect(view.type).toBe('grid')
+    const updated = await updateView(orgId, leads.id, view.id, {
+      config: { publicSlug: 'squatted-slug', visibleFieldIds: [company.id] },
+    })
+    expect(updated.config.publicSlug).toBeUndefined()
+    expect(updated.config.visibleFieldIds).toEqual([company.id])
+    // And the slug stays free for a real form.
+    const form = await createView(orgId, leads.id, {
+      name: 'Slug rescuer',
+      type: 'form',
+      config: formConfig({ publicSlug: 'squatted-slug' }),
+    })
+    expect(form.config.publicSlug).toBe('squatted-slug')
+  })
+})
+
 describe('form errors are EngineErrors', () => {
   it('FormSubmissionError subclasses EngineError with code form_validation', () => {
     const e = new FormSubmissionError('x', { a: 'b' })

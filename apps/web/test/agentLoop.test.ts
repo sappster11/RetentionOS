@@ -146,6 +146,74 @@ describe('runAgentLoop', () => {
     expect(chip.isError).toBe(true)
   })
 
+  it('aborting after the first tool executes no second tool and no second model call', async () => {
+    const controller = new AbortController()
+    const seen: Array<Record<string, unknown>> = []
+    const tool: EngineToolDef = {
+      name: 'list_tables',
+      title: 'List tables',
+      description: 'stub',
+      inputSchema: {},
+      run: async (args) => {
+        seen.push(args)
+        controller.abort() // the client disconnects while the first tool runs
+        return { content: [{ type: 'text', text: JSON.stringify({ tables: [] }) }] }
+      },
+    }
+    const { client, calls } = mockClient([
+      {
+        stop_reason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'tu_1', name: 'list_tables', input: { n: 1 } },
+          { type: 'tool_use', id: 'tu_2', name: 'list_tables', input: { n: 2 } },
+        ],
+      },
+      { stop_reason: 'end_turn', content: [{ type: 'text', text: 'never reached' }] },
+    ])
+    const { events, emit } = collect()
+
+    await runAgentLoop({
+      client,
+      model: 'claude-test',
+      system: 'sys',
+      tools: [tool],
+      messages: [{ role: 'user', content: 'do two things' }],
+      toolContext,
+      signal: controller.signal,
+      emit,
+    })
+
+    expect(seen).toHaveLength(1) // second tool_use never executed
+    expect(seen[0]).toEqual({ n: 1 })
+    expect(calls).toHaveLength(1) // and no follow-up model call
+    expect(events.at(-1)).toEqual({ type: 'done' }) // best-effort final done
+  })
+
+  it('an already-aborted signal makes no model calls at all', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const { tool, seen } = fakeTool()
+    const { client, calls } = mockClient([
+      { stop_reason: 'end_turn', content: [{ type: 'text', text: 'hi' }] },
+    ])
+    const { events, emit } = collect()
+
+    await runAgentLoop({
+      client,
+      model: 'claude-test',
+      system: 'sys',
+      tools: [tool],
+      messages: [{ role: 'user', content: 'hello' }],
+      toolContext,
+      signal: controller.signal,
+      emit,
+    })
+
+    expect(calls).toHaveLength(0)
+    expect(seen).toHaveLength(0)
+    expect(events).toEqual([{ type: 'done' }])
+  })
+
   it('stops after maxIterations and tells the user', async () => {
     const { tool } = fakeTool()
     const { client, calls } = mockClient([

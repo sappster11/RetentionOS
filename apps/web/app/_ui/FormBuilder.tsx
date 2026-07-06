@@ -28,6 +28,12 @@ export function FormBuilder({
   const byId = useMemo(() => new Map(fields.map((f) => [f.id, f])), [fields])
   const writable = useMemo(() => fields.filter((f) => isFormWritableType(f.type)), [fields])
   const inForm = useMemo(() => new Set(formFields.map((fc) => fc.fieldId)), [formFields])
+  // Engine-required fields that are NOT on the form: every submission will be rejected by
+  // the engine (with a generic message on the public page), so warn the builder here.
+  const missingRequired = useMemo(
+    () => fields.filter((f) => f.required && !inForm.has(f.id)),
+    [fields, inForm],
+  )
 
   // Text drafts commit on blur (write-through on every keystroke would spam PATCHes).
   const [title, setTitle] = useState(config.title ?? '')
@@ -179,6 +185,30 @@ export function FormBuilder({
             />
           </div>
         </div>
+
+        {/* Engine-required fields missing from the form — submissions cannot succeed. */}
+        {missingRequired.length > 0 ? (
+          <div
+            data-testid="form-missing-required"
+            style={{
+              border: '1px solid var(--danger)',
+              borderRadius: 6,
+              padding: '8px 10px',
+              background: 'var(--bg)',
+              color: 'var(--danger)',
+              fontSize: 12.5,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+            }}
+          >
+            {missingRequired.map((f) => (
+              <div key={f.id}>
+                Submissions will fail: {f.name} is required by the table.
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         {/* Fields on the form, in order */}
         <div>

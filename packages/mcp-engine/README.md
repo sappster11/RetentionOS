@@ -15,7 +15,7 @@ do by clicking, an agent can do by tool call (agent-parity law).
 | `create_base` | Create a base; put tables in it via `create_table`'s `base` argument |
 | `list_tables` | All tables in the org (with `base_id`/`base_name`), optionally filtered to one base |
 | `describe_table` | One table's full schema: fields (ids, types, options, choice ids), views |
-| `create_table` / `update_table` / `delete_table` | Table lifecycle (`create_table` takes an optional `base`) |
+| `create_table` / `update_table` / `delete_table` | Table lifecycle (`create_table` takes an optional `base`; `update_table` moves a table with `base` or ungroups it with `clear_base`) |
 | `create_field` / `update_field` / `delete_field` | Field lifecycle (linked_record auto-creates its inverse) |
 | `query_records` | Filter/sort/paginate; returns raw `values` + computed `display` maps |
 | `get_record` | One record (+ optional revision history) |

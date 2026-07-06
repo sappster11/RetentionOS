@@ -19,7 +19,16 @@ export async function generateMetadata({ params }: Params) {
 
 export default async function PublicFormPage({ params }: Params) {
   const { slug } = await params
-  const form = await getFormBySlug(slug)
+  // Public surface: an unexpected engine/db failure is logged server-side and re-thrown
+  // as a fixed generic message so nothing internal can surface on the anonymous page
+  // (mirrors publicErrorResponse on the submit route).
+  let form
+  try {
+    form = await getFormBySlug(slug)
+  } catch (err) {
+    console.error('[public-form] failed to resolve form:', err)
+    throw new Error('Something went wrong.')
+  }
   if (!form) notFound()
 
   const fields: FormFieldDef[] = form.fields.map((ff) => ({

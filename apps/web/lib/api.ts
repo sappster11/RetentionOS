@@ -40,6 +40,19 @@ export function errorResponse(err: unknown): NextResponse {
   return json({ error: message }, 500)
 }
 
+/**
+ * Error mapping for the PUBLIC (unauthenticated) surfaces ONLY — the form submit route and
+ * /f/[slug]. EngineError (incl. FormSubmissionError, handled by the caller first) passes
+ * through as today, but any unexpected exception is logged server-side and returned as a
+ * fixed generic 500: raw messages (SQL text, stack fragments, internal names) must never
+ * reach an anonymous caller. The authed /api/v1 surface keeps errorResponse's behavior.
+ */
+export function publicErrorResponse(err: unknown): NextResponse {
+  if (err instanceof EngineError) return errorResponse(err)
+  console.error('[public-api] unexpected error:', err)
+  return json({ error: { code: 'internal', message: 'Something went wrong.' } }, 500)
+}
+
 /** Parse a JSON body, returning {} for an empty/absent body rather than throwing. */
 export async function readJson(request: Request): Promise<Record<string, unknown>> {
   try {

@@ -1,5 +1,5 @@
 import { FormSubmissionError, submitForm } from '@retentionos/engine'
-import { errorResponse, json, readJson } from '@/lib/api'
+import { json, publicErrorResponse, readJson } from '@/lib/api'
 
 // POST /api/forms/[slug]/submit — the PUBLIC form submission endpoint (no auth, no org
 // resolution: the slug alone identifies the form and its org). Body: { values: { <fieldId>:
@@ -22,6 +22,7 @@ export async function POST(request: Request, { params }: Params) {
     if (err instanceof FormSubmissionError) {
       return json({ error: err.message, code: err.code, fieldErrors: err.fieldErrors }, 400)
     }
-    return errorResponse(err)
+    // Public surface: engine errors pass through; anything else → logged + generic 500.
+    return publicErrorResponse(err)
   }
 }

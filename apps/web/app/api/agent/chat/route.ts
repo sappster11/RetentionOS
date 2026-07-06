@@ -100,6 +100,9 @@ export async function POST(request: Request) {
           messages: messages!,
           toolContext: { actor: { type: 'agent', id: 'roam-chat' }, orgId },
           emit,
+          // Stop the loop (no further model calls or tool mutations) when the client
+          // disconnects or cancels the request.
+          signal: request.signal,
         })
       } catch (err) {
         emit({

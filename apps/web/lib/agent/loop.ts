@@ -68,6 +68,10 @@ export interface RunAgentLoopOptions {
   maxIterations?: number
   emit: (event: AgentStreamEvent) => void
   maxTokens?: number
+  /** Abort signal (the route passes request.signal). Checked before every model call and
+   * before every tool execution: once aborted, no further model calls or engine mutations
+   * happen — the loop emits a best-effort final done and returns. */
+  signal?: AbortSignal
 }
 
 export const MAX_TOOL_ITERATIONS = 12
@@ -78,7 +82,21 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<void> {
   const messages: ChatTurn[] = [...opts.messages]
   const maxIterations = opts.maxIterations ?? MAX_TOOL_ITERATIONS
 
+  // Best-effort final event on abort: the client has usually disconnected, so the SSE
+  // controller may already be closed — emitting must not turn a clean stop into a throw.
+  const emitDoneOnAbort = () => {
+    try {
+      opts.emit({ type: 'done' })
+    } catch {
+      // stream already closed — nothing left to notify
+    }
+  }
+
   for (let iteration = 0; iteration < maxIterations; iteration++) {
+    if (opts.signal?.aborted) {
+      emitDoneOnAbort()
+      return
+    }
     const stream = opts.client.messages.stream({
       model: opts.model,
       max_tokens: opts.maxTokens ?? 8192,
@@ -108,6 +126,11 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<void> {
     // Execute every requested tool, then return ALL results in ONE user turn.
     const results: Array<Record<string, unknown>> = []
     for (const use of toolUses) {
+      // Aborted mid-turn (client gone): stop before the next tool — no further mutations.
+      if (opts.signal?.aborted) {
+        emitDoneOnAbort()
+        return
+      }
       const def = toolsByName.get(use.name)
       const result: ToolResult = def
         ? await def.run((use.input ?? {}) as Record<string, unknown>, opts.toolContext)

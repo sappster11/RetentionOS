@@ -374,8 +374,8 @@ export const tools: EngineToolDef[] = [
       'the organization: id, name, slug, icon, position. Tables carry a base_id (null = ' +
       'ungrouped "Workspace"); filter list_tables by base to see one base\'s tables.',
     inputSchema: { organization_id: organizationIdField },
-    handler: async ({ organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
+    handler: async ({ organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
       return { bases: await engineListBases(orgId) }
     },
   }),
@@ -392,9 +392,9 @@ export const tools: EngineToolDef[] = [
       icon: z.string().optional().describe('Optional emoji icon, e.g. "🎯".'),
       organization_id: organizationIdField,
     },
-    handler: async ({ name, icon, organization_id }) => {
-      const orgId = await resolveOrg(organization_id)
-      return { base: await engineCreateBase(orgId, { name, icon: icon ?? null }, agentActor()) }
+    handler: async ({ name, icon, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
+      return { base: await engineCreateBase(orgId, { name, icon: icon ?? null }, ctx.actor) }
     },
   }),
 
@@ -493,7 +493,8 @@ export const tools: EngineToolDef[] = [
     name: 'update_table',
     title: 'Update table',
     description:
-      'Rename a table or change its icon/description/position. Only provided fields change. ' +
+      'Rename a table or change its icon/description/position, or move it between bases ' +
+      '(`base` to move, `clear_base` to ungroup). Only provided fields change. ' +
       'Renames are safe: records key values by field id and the slug is untouched.',
     inputSchema: {
       table: tableRef,
@@ -501,12 +502,33 @@ export const tools: EngineToolDef[] = [
       icon: z.string().nullable().optional().describe('New emoji icon (null clears it).'),
       description: z.string().nullable().optional().describe('New description (null clears it).'),
       position: z.number().int().optional().describe('New sidebar position.'),
+      base: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          'Move the table into this base — referenced by id (uuid), slug, or exact name ' +
+            '(case-insensitive). Mutually exclusive with clear_base.',
+        ),
+      clear_base: z
+        .boolean()
+        .optional()
+        .describe('true = remove the table from its base (back to the ungrouped "Workspace").'),
       organization_id: organizationIdField,
     },
-    handler: async ({ table, name, icon, description, position, organization_id }, ctx) => {
+    handler: async (
+      { table, name, icon, description, position, base, clear_base, organization_id },
+      ctx,
+    ) => {
+      if (base && clear_base) {
+        throw new EngineError('Pass either `base` or `clear_base`, not both.', 'bad_input')
+      }
       const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
-      return { table: await engineUpdateTable(orgId, tableId, { name, icon, description, position }) }
+      const baseId = clear_base ? null : base ? await resolveBaseId(orgId, base) : undefined
+      return {
+        table: await engineUpdateTable(orgId, tableId, { name, icon, description, position, baseId }),
+      }
     },
   }),
 

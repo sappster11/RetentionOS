@@ -4,6 +4,7 @@
 // organizationId, and every record mutation writes an engine_record_revisions row so the
 // audit trail (human-vs-agent-vs-api) is complete without the caller remembering to.
 
+import { randomBytes } from 'node:crypto'
 import { getPool, query, queryOne, slugify } from '@retentionos/db'
 import { coerceValue, coerceValues, isFieldType, validateFieldOptions } from './fieldTypes'
 import { parseFormula, referencedFieldIds } from './formula'
@@ -1170,6 +1171,11 @@ export async function updateView(
       { ...proposed, publicSlug: existing.config.publicSlug ?? proposed.publicSlug },
       { nameForSlug: patch.name?.trim() || existing.name, excludeViewId: viewId },
     )
+  } else if (config !== undefined && 'publicSlug' in config) {
+    // Non-form views are never served at /f/<slug>, so a grid/kanban config must not
+    // store a publicSlug — it would silently squat the app-global form-slug namespace.
+    const { publicSlug: _dropped, ...rest } = config
+    config = rest
   }
 
   const sets: string[] = []
@@ -1266,12 +1272,16 @@ async function formSlugTaken(slug: string, excludeViewId?: string): Promise<bool
   return !!clash
 }
 
-/** Mint a unique public slug: slugified base + a random 6-char token ("leads-x7k2p9"). */
+/** Mint a unique public slug: slugified base + a crypto-random 10-hex-char token
+ * ("leads-3f9a1c04be"). The token comes from node:crypto (not Math.random) — /f/ slugs are
+ * unauthenticated capability URLs, so they must not be guessable from a seeded PRNG.
+ * NOTE: the check-then-insert here still races under concurrency; the eventual fix is a
+ * partial unique index on (config->>'publicSlug') where type = 'form'. */
 async function uniqueFormSlug(base: string): Promise<string> {
   const root = slugify(base) || 'form'
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const candidate = `${root}-${Math.random().toString(36).slice(2, 8)}`
+    const candidate = `${root}-${randomBytes(5).toString('hex')}`
     if (FORM_SLUG_RE.test(candidate) && !(await formSlugTaken(candidate))) return candidate
   }
 }
@@ -1455,6 +1465,29 @@ export async function submitForm(
       else throw err
     }
   }
+  // Engine-required fields must be satisfiable through this form, so createRecord's
+  // 'required' EngineError (which names internal fields) can never escape to the public
+  // surface. On the form → behaves like a form-required miss (inline field error). NOT on
+  // the form → the submission can never succeed; fail with one generic form-level message
+  // that leaks no field names.
+  const tableFields = await listFields(form.table.organization_id, form.table.id)
+  for (const field of tableFields) {
+    if (!field.required) continue
+    const ff = byId.get(field.id)
+    if (!ff) {
+      throw new FormSubmissionError(
+        'This form is missing a required field — contact the form owner.',
+        {},
+      )
+    }
+    const raw = rawValues[field.id]
+    const empty =
+      raw === null || raw === undefined || raw === '' || (Array.isArray(raw) && raw.length === 0)
+    if (empty && !fieldErrors[field.id]) {
+      fieldErrors[field.id] = `${ff.label} is required.`
+    }
+  }
+
   if (Object.keys(fieldErrors).length > 0) {
     throw new FormSubmissionError('Some answers need attention.', fieldErrors)
   }
