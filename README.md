@@ -26,6 +26,9 @@ agency that runs itself through this platform, with a chat surface embedded in t
 | [docs/08-course-correction.md](docs/08-course-correction.md) | **The plan. Start here.** Decisions, V1 scope, phases A–D |
 | [docs/07-working-agreement.md](docs/07-working-agreement.md) | Rules for the AI/dev executing the plan (still in force) |
 | [docs/02-tech-stack.md](docs/02-tech-stack.md) | Tooling (still mostly accurate; 08 wins on conflict) |
+| [docs/09-sales-crm.md](docs/09-sales-crm.md) | Sales CRM spec — the first product configured on the engine (`seed:salescrm`) |
+| [docs/10-client-hub.md](docs/10-client-hub.md) | Client hub spec — tables, taxonomies, derived fields (`seed:clienthub`) |
+| [docs/N8N_INTEGRATION.md](docs/N8N_INTEGRATION.md) | How n8n reads/writes RetentionOS through /api/v1 |
 | [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md) | How to run locally |
 | docs 00–06, `phases/`, [docs/BUILD_STATUS.md](docs/BUILD_STATUS.md) | Superseded pre-pivot plan (historical) |
 
@@ -45,7 +48,7 @@ Later    forms, wired in-app agent, automations, analytics backbone, multi-user
 - [x] Phase A — Engine core *(+ Airtable-parity grid polish)*
 - [x] Phase B — Relations & views *(linked records, lookups, rollups, Kanban, record detail panel)*
 - [x] Phase C — Agent surface *(generic MCP server `@retentionos/mcp-engine`, chat sidebar shell, record history/audit UI)*
-- [ ] Phase D — Roam CRM as configuration *(pre-seeded: Sales CRM per docs/09)*
+- [x] Phase D — Roam CRM as configuration *(client hub + sales CRM as configuration — `seed:salescrm` per docs/09, `seed:clienthub` per docs/10 — n8n via REST, docs/N8N_INTEGRATION.md)*
 
 **Parked from the pre-pivot build** (kept in-tree, out of scope): migrations 0003–0008 and
 their tables, `packages/integrations` (Shopify/Klaviyo/Airtable connectors), the six
