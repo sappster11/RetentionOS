@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Generic engine MCP server — the full meta-schema surface (tables/fields/records/views/revisions) as tools for any agent. Same service layer as the UI (agent-parity law).",
+  "exports": {
+    "./tools": "./src/tools.ts"
+  },
   "bin": {
     "retentionos-engine": "src/index.ts"
   },
