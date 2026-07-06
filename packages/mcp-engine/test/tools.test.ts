@@ -445,3 +445,40 @@ describe('mcp-engine tools — review-fix behaviors', () => {
     }
   })
 })
+
+describe('mcp-engine tools — bases', () => {
+  it('create_base + list_bases + create_table in a base + list_tables base filter/name', async () => {
+    const org = await ensureTestOrg()
+
+    const crm = await call('create_base', { name: 'Sales CRM', icon: '🎯', organization_id: org })
+    expect(crm.base.slug).toBe('sales-crm')
+    expect(crm.base.created_by_type).toBe('agent')
+    const hub = await call('create_base', { name: 'Client Hub', icon: '🤝', organization_id: org })
+
+    const bases = await call('list_bases', { organization_id: org })
+    expect(bases.bases.map((b: any) => b.name)).toEqual(['Sales CRM', 'Client Hub'])
+
+    // Base ref accepted as slug, name, or id.
+    const leads = await call('create_table', { name: 'Leads', base: 'sales-crm', organization_id: org })
+    expect(leads.table.base_id).toBe(crm.base.id)
+    const clients = await call('create_table', { name: 'Clients', base: 'Client Hub', organization_id: org })
+    expect(clients.table.base_id).toBe(hub.base.id)
+    const loose = await call('create_table', { name: 'Scratch', organization_id: org })
+    expect(loose.table.base_id).toBeNull()
+
+    // Unfiltered list carries base_id + base_name per table (null for ungrouped).
+    const all = await call('list_tables', { organization_id: org })
+    const byName = new Map(all.tables.map((t: any) => [t.name, t]))
+    expect((byName.get('Leads') as any).base_name).toBe('Sales CRM')
+    expect((byName.get('Clients') as any).base_name).toBe('Client Hub')
+    expect((byName.get('Scratch') as any).base_name).toBeNull()
+
+    // Filtered to one base (by id this time).
+    const crmOnly = await call('list_tables', { base: crm.base.id, organization_id: org })
+    expect(crmOnly.tables.map((t: any) => t.name)).toEqual(['Leads'])
+
+    // Unknown base ref → not_found.
+    const err = await callExpectError('list_tables', { base: 'nope', organization_id: org })
+    expect(err.code).toBe('not_found')
+  })
+})

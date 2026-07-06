@@ -12,6 +12,7 @@ import { getDefaultOrganization } from '@retentionos/db'
 import {
   EngineError,
   FIELD_TYPES,
+  createBase as engineCreateBase,
   createField as engineCreateField,
   createRecord as engineCreateRecord,
   createTable as engineCreateTable,
@@ -21,9 +22,12 @@ import {
   deleteTable as engineDeleteTable,
   deleteView as engineDeleteView,
   describeTable as engineDescribeTable,
+  getBase,
+  getBaseBySlug,
   getRecordEnriched,
   getTable,
   getTableBySlug,
+  listBases as engineListBases,
   listRecordRevisions,
   listTables as engineListTables,
   listViews as engineListViews,
@@ -103,6 +107,31 @@ async function resolveTableId(orgId: string, ref: string): Promise<string> {
   }
   throw new EngineError(
     `No table matching "${ref}" (tried id, slug, and name). Call list_tables to see what exists.`,
+    'not_found',
+  )
+}
+
+/** Accept a base reference as id (uuid), slug, or exact name (case-insensitive). */
+async function resolveBaseId(orgId: string, ref: string): Promise<string> {
+  if (UUID_RE.test(ref)) {
+    const byId = await getBase(orgId, ref)
+    if (byId) return byId.id
+  }
+  const bySlug = await getBaseBySlug(orgId, ref)
+  if (bySlug) return bySlug.id
+  const all = await engineListBases(orgId)
+  const lowered = ref.toLowerCase()
+  const byName = all.filter((b) => b.name.toLowerCase() === lowered)
+  if (byName.length === 1) return byName[0]!.id
+  if (byName.length > 1) {
+    const matches = byName.map((b) => `${b.id} ("${b.name}")`).join(', ')
+    throw new EngineError(
+      `Multiple bases match "${ref}"; use the base id. Matches: ${matches}`,
+      'ambiguous',
+    )
+  }
+  throw new EngineError(
+    `No base matching "${ref}" (tried id, slug, and name). Call list_bases to see what exists.`,
     'not_found',
   )
 }
@@ -295,17 +324,73 @@ const FIELD_TYPE_ENUM = z.enum(FIELD_TYPES as [FieldType, ...FieldType[]])
 // ---------------------------------------------------------------------------
 
 export const tools: EngineToolDef[] = [
+  // --- bases ------------------------------------------------------------------
+  defineTool({
+    name: 'list_bases',
+    title: 'List bases',
+    description:
+      'List every base (workspace grouping of tables, e.g. "Sales CRM" / "Client Hub") in ' +
+      'the organization: id, name, slug, icon, position. Tables carry a base_id (null = ' +
+      'ungrouped "Workspace"); filter list_tables by base to see one base\'s tables.',
+    inputSchema: { organization_id: organizationIdField },
+    handler: async ({ organization_id }) => {
+      const orgId = await resolveOrg(organization_id)
+      return { bases: await engineListBases(orgId) }
+    },
+  }),
+
+  defineTool({
+    name: 'create_base',
+    title: 'Create base',
+    description:
+      'Create a new empty base (workspace grouping of tables). Only name is required; a ' +
+      'url-safe slug is derived (uniqued with -2, -3… on collision). Put tables in it via ' +
+      'create_table\'s `base` argument.',
+    inputSchema: {
+      name: z.string().min(1).describe('Human-readable base name, e.g. "Sales CRM".'),
+      icon: z.string().optional().describe('Optional emoji icon, e.g. "🎯".'),
+      organization_id: organizationIdField,
+    },
+    handler: async ({ name, icon, organization_id }) => {
+      const orgId = await resolveOrg(organization_id)
+      return { base: await engineCreateBase(orgId, { name, icon: icon ?? null }, agentActor()) }
+    },
+  }),
+
   // --- tables ---------------------------------------------------------------
   defineTool({
     name: 'list_tables',
     title: 'List tables',
     description:
-      'List every table in the organization (id, name, slug, icon, description, position). ' +
-      'Start here to see what exists; then call describe_table for field ids and types.',
-    inputSchema: { organization_id: organizationIdField },
-    handler: async ({ organization_id }) => {
+      'List every table in the organization (id, name, slug, icon, description, base_id + ' +
+      'base_name, position), optionally filtered to one base. Start here to see what ' +
+      'exists; then call describe_table for field ids and types.',
+    inputSchema: {
+      base: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          'Only tables in this base — referenced by id (uuid), slug, or exact name ' +
+            '(case-insensitive). Omit for all tables.',
+        ),
+      organization_id: organizationIdField,
+    },
+    handler: async ({ base, organization_id }) => {
       const orgId = await resolveOrg(organization_id)
-      return { tables: await engineListTables(orgId) }
+      const baseId = base ? await resolveBaseId(orgId, base) : null
+      const [tables, bases] = await Promise.all([
+        engineListTables(orgId),
+        engineListBases(orgId),
+      ])
+      const baseNames = new Map(bases.map((b) => [b.id, b.name]))
+      const withBase = tables
+        .filter((t) => (baseId ? t.base_id === baseId : true))
+        .map((t) => ({
+          ...t,
+          base_name: t.base_id ? baseNames.get(t.base_id) ?? null : null,
+        }))
+      return { tables: withBase }
     },
   }),
 
@@ -333,20 +418,30 @@ export const tools: EngineToolDef[] = [
     title: 'Create table',
     description:
       'Create a new empty table. Only name is required; a url-safe slug is derived ' +
-      '(uniqued with -2, -3… on collision). Add fields with create_field next — a new ' +
+      '(uniqued with -2, -3… on collision). Pass `base` to create it inside a base ' +
+      '(omit = ungrouped "Workspace"). Add fields with create_field next — a new ' +
       'table has none.',
     inputSchema: {
       name: z.string().min(1).describe('Human-readable table name, e.g. "Deals".'),
       icon: z.string().optional().describe('Optional emoji icon, e.g. "📈".'),
       description: z.string().optional().describe('Optional table description.'),
+      base: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          'Base to create the table in — referenced by id (uuid), slug, or exact name ' +
+            '(case-insensitive). Omit for no base.',
+        ),
       organization_id: organizationIdField,
     },
-    handler: async ({ name, icon, description, organization_id }) => {
+    handler: async ({ name, icon, description, base, organization_id }) => {
       const orgId = await resolveOrg(organization_id)
+      const baseId = base ? await resolveBaseId(orgId, base) : null
       return {
         table: await engineCreateTable(
           orgId,
-          { name, icon: icon ?? null, description: description ?? null },
+          { name, icon: icon ?? null, description: description ?? null, baseId },
           agentActor(),
         ),
       }
