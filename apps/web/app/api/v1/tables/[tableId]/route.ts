@@ -15,7 +15,8 @@ export async function GET(_request: Request, { params }: Params) {
   }
 }
 
-// PATCH /api/v1/tables/[tableId] — update name/icon/description/position.
+// PATCH /api/v1/tables/[tableId] — update name/icon/description/baseId/position.
+// baseId moves the table into a base (uuid) or ungroups it (null).
 export async function PATCH(request: Request, { params }: Params) {
   try {
     const orgId = await resolveOrgId()
@@ -25,6 +26,7 @@ export async function PATCH(request: Request, { params }: Params) {
       name: typeof body.name === 'string' ? body.name : undefined,
       icon: 'icon' in body ? (body.icon as string | null) : undefined,
       description: 'description' in body ? (body.description as string | null) : undefined,
+      baseId: 'baseId' in body ? (body.baseId as string | null) : undefined,
       position: typeof body.position === 'number' ? body.position : undefined,
     })
     return json({ table })
