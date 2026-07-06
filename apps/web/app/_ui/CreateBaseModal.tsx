@@ -1,31 +1,17 @@
 'use client'
 
 import { useState } from 'react'
-import type { EngineBase } from '@retentionos/engine'
 import { Field, buttonGhost, buttonPrimary, inputStyle } from './primitives'
 
-export function CreateTableModal({
-  bases,
-  defaultBaseId,
+export function CreateBaseModal({
   onClose,
   onCreate,
 }: {
-  bases: EngineBase[]
-  /** Preselected base — the shell passes the active one. null = ungrouped ("Workspace"). */
-  defaultBaseId: string | null
   onClose: () => void
-  onCreate: (input: {
-    name: string
-    icon?: string
-    description?: string
-    baseId: string | null
-  }) => Promise<void>
+  onCreate: (input: { name: string; icon?: string }) => Promise<void>
 }) {
   const [name, setName] = useState('')
   const [icon, setIcon] = useState('')
-  const [description, setDescription] = useState('')
-  // '' encodes "no base" for the <select> (option values must be strings).
-  const [baseId, setBaseId] = useState<string>(defaultBaseId ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -34,14 +20,9 @@ export function CreateTableModal({
     setBusy(true)
     setError(null)
     try {
-      await onCreate({
-        name: name.trim(),
-        icon: icon.trim() || undefined,
-        description: description.trim() || undefined,
-        baseId: baseId || null,
-      })
+      await onCreate({ name: name.trim(), icon: icon.trim() || undefined })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create table.')
+      setError(err instanceof Error ? err.message : 'Failed to create base.')
       setBusy(false)
     }
   }
@@ -70,7 +51,7 @@ export function CreateTableModal({
           padding: 20,
         }}
       >
-        <h2 style={{ margin: '0 0 16px', fontSize: 16 }}>New table</h2>
+        <h2 style={{ margin: '0 0 16px', fontSize: 16 }}>New base</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Field label="Name">
             <input
@@ -78,33 +59,12 @@ export function CreateTableModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && submit()}
-              placeholder="Clients"
+              placeholder="Sales CRM"
               style={inputStyle}
             />
           </Field>
           <Field label="Icon (emoji, optional)">
-            <input value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="👥" style={inputStyle} />
-          </Field>
-          {bases.length > 0 ? (
-            <Field label="Base">
-              <select value={baseId} onChange={(e) => setBaseId(e.target.value)} style={inputStyle}>
-                {bases.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.icon ? `${b.icon} ` : ''}
-                    {b.name}
-                  </option>
-                ))}
-                <option value="">Workspace (no base)</option>
-              </select>
-            </Field>
-          ) : null}
-          <Field label="Description (optional)">
-            <input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Client accounts and their status"
-              style={inputStyle}
-            />
+            <input value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="🎯" style={inputStyle} />
           </Field>
           {error ? <p style={{ color: 'var(--danger)', fontSize: 12, margin: 0 }}>{error}</p> : null}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
@@ -112,7 +72,7 @@ export function CreateTableModal({
               Cancel
             </button>
             <button onClick={submit} disabled={busy || !name.trim()} style={buttonPrimary}>
-              {busy ? 'Creating…' : 'Create table'}
+              {busy ? 'Creating…' : 'Create base'}
             </button>
           </div>
         </div>

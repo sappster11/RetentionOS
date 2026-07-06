@@ -1,6 +1,7 @@
 // Thin browser fetch wrapper over the /api/v1 REST surface. The UI talks to the API (not
 // the engine service layer directly), so the API is exercised by the app itself.
 import type {
+  EngineBase,
   EngineField,
   EngineRecordRevision,
   EngineTable,
@@ -29,9 +30,30 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  listBases: () => req<{ bases: EngineBase[] }>('/api/v1/bases').then((r) => r.bases),
+
+  createBase: (body: { name: string; icon?: string | null }) =>
+    req<{ base: EngineBase }>('/api/v1/bases', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }).then((r) => r.base),
+
+  updateBase: (baseId: string, patch: { name?: string; icon?: string | null; position?: number }) =>
+    req<{ base: EngineBase }>(`/api/v1/bases/${baseId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }).then((r) => r.base),
+
+  deleteBase: (baseId: string) => req<{ ok: true }>(`/api/v1/bases/${baseId}`, { method: 'DELETE' }),
+
   listTables: () => req<{ tables: EngineTable[] }>('/api/v1/tables').then((r) => r.tables),
 
-  createTable: (body: { name: string; icon?: string | null; description?: string | null }) =>
+  createTable: (body: {
+    name: string
+    icon?: string | null
+    description?: string | null
+    baseId?: string | null
+  }) =>
     req<{ table: EngineTable }>('/api/v1/tables', {
       method: 'POST',
       body: JSON.stringify(body),
