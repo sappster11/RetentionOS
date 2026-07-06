@@ -247,8 +247,9 @@ async function insertField(
  *  - lookup/rollup.recordLinkFieldId must be a linked_record field ON THIS table.
  *  - lookup/rollup.targetFieldId must be a CONCRETE (non-computed) field on the linked table
  *    (no lookup-of-lookup chains). Count rollups may omit targetFieldId.
- *  - lookup/rollup.filters[].fieldId must each be a CONCRETE (non-computed, non-linked)
- *    field on the linked table (their conditions evaluate against linked-row values).
+ *  - lookup/rollup.filters[].fieldId must each be a CONCRETE (non-computed, non-linked,
+ *    non-multi_select) field on the linked table (their conditions evaluate against
+ *    linked-row values).
  */
 async function assertRelationOptions(
   orgId: string,
@@ -299,6 +300,13 @@ async function assertRelationOptions(
         if (isComputedType(ff.type) || ff.type === 'linked_record') {
           throw new EngineError(
             `Filter field "${ff.name}" must be a concrete (non-computed, non-linked) field on the linked table.`,
+            'bad_options',
+          )
+        }
+        // TODO: allow multi_select filter fields once array-membership ("has choice") semantics land.
+        if (ff.type === 'multi_select') {
+          throw new EngineError(
+            `Filter field "${ff.name}" is a multi_select — multi_select fields cannot be used in lookup/rollup filters yet.`,
             'bad_options',
           )
         }

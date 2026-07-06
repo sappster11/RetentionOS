@@ -24,7 +24,7 @@ view that exists only because Airtable makes cross-table reads hard for automati
 | Identity | **Client** (text, primary) · Domain (url) · Logo (attachment) · Industry (single_select, reference taxonomy) · Services (multi_select) · Status (single_select: Onboarding / Active / Paused / Churned — history free via revisions) |
 | Comms & automation (absorbs the Slack Channels + Processes tables and approval plumbing) | Internal Slack Channel ID (text) · External Slack Channel ID (text) · Approval Channel (single_select: Slack / Email) · Approval Link Mode (single_select: Figma Only / Asana Only / Both) · Asana Tracker GID (text) · Answer Prompts (checkbox — gates the monthly questionnaire) |
 | Links | Contacts · Engagements · Client Docs · Assignments · Prompt Doc Cycles · Discount Codes · Tech Stack (link to catalog) |
-| Derived | Active PM (**filtered rollup** over Assignments: End empty ∧ Role=PM) · Active Strategist (same, Role=Strategist) · Client Since (rollup MIN over Engagements Start) · Open Engagements (filtered count) |
+| Derived | Active PM · Active Strategist (filtered count rollups in v1; name rollups pending depth-2 lookup chaining — the seed self-heals) · Client Since (rollup MIN over Engagements Start) · Open Engagements (filtered count) |
 
 ### 2. Contacts — **extend the existing shared table from doc 09** (do not create a second one)
 Add: Client (linked_record → Clients), Slack ID (text), Approver (checkbox — load-bearing

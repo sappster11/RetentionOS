@@ -108,7 +108,7 @@ record. `GET` on it fetches one record.
 | checkbox | `true` / `false` |
 | date / datetime | ISO string (`"2026-07-01"` / `"2026-07-01T09:00:00Z"`) |
 | number / currency / percent | plain number (percent stored 0–1) |
-| lookup / rollup / formula / autonumber / created_time | **read-only** — computed at read time, appears in `display`; writing it is a 400 |
+| lookup / rollup / formula / autonumber / created_time / last_modified_time | **read-only** — computed at read time, appears in `display`; writing it is a 400 |
 
 Errors come back as `{ error, code }` with a 4xx status — surface `error` in your n8n
 failure branch; it says exactly which field/value was rejected.

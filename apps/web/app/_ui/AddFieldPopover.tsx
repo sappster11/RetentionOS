@@ -117,9 +117,16 @@ export function AddFieldPopover({
   )
   const fieldNameById = useMemo(() => new Map(fields.map((f) => [f.id, f.name])), [fields])
   // Linked-table fields a lookup/rollup filter may condition on: concrete only (the
-  // engine rejects computed and linked_record filter fields).
+  // engine rejects computed, linked_record, and — until array-membership semantics
+  // land — multi_select filter fields).
   const filterableFields = useMemo(
-    () => targetFields.filter((f) => f.type !== 'linked_record'),
+    () =>
+      targetFields.filter(
+        (f) =>
+          !COMPUTED_FIELD_TYPES.includes(f.type) &&
+          f.type !== 'linked_record' &&
+          f.type !== 'multi_select',
+      ),
     [targetFields],
   )
 
@@ -403,11 +410,33 @@ export function AddFieldPopover({
                               )
                             }
                             if (ff?.type === 'checkbox') {
+                              // "checked" is eq 'true'; "unchecked" is neq 'true'
+                              // (is-distinct-from) so it matches rows where the box is
+                              // false AND rows where it was never set — what users mean.
+                              const cbState =
+                                row.value !== 'true' ? '' : row.op === 'neq' ? 'unchecked' : 'checked'
                               return (
-                                <select value={row.value} onChange={(e) => setValue(e.target.value)} style={inputStyle}>
+                                <select
+                                  value={cbState}
+                                  onChange={(e) => {
+                                    const v = e.target.value
+                                    setFilters((fs) =>
+                                      fs.map((x, j) =>
+                                        j === i
+                                          ? {
+                                              ...x,
+                                              op: v === 'unchecked' ? 'neq' : 'eq',
+                                              value: v ? 'true' : '',
+                                            }
+                                          : x,
+                                      ),
+                                    )
+                                  }}
+                                  style={inputStyle}
+                                >
                                   <option value="">— pick —</option>
-                                  <option value="true">checked</option>
-                                  <option value="false">unchecked</option>
+                                  <option value="checked">checked</option>
+                                  <option value="unchecked">unchecked</option>
                                 </select>
                               )
                             }

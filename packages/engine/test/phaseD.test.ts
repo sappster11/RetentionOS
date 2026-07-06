@@ -128,6 +128,26 @@ describe('filtered rollups', () => {
     expect(read!.display[tenHours.id]).toBe(2) // Ana + Cyd
   })
 
+  it("checkbox neq 'true' counts both unchecked (false) and never-set rows", async () => {
+    // The UI's "unchecked" condition — is-distinct-from 'true' must cover explicit
+    // false AND rows where the checkbox was never touched (stored null/absent).
+    const f = await fixture()
+    const done = await createField(orgId, f.asg.id, { name: 'Done', type: 'checkbox' }, A)
+    const yes = await createRecord(orgId, f.asg.id, { [f.person.id]: 'Yes', [done.id]: true }, A)
+    const no = await createRecord(orgId, f.asg.id, { [f.person.id]: 'No', [done.id]: false }, A)
+    const unset = await createRecord(orgId, f.asg.id, { [f.person.id]: 'Unset' }, A)
+    const notDone = await rollup(f, 'Not done', {
+      recordLinkFieldId: f.link.id,
+      aggregate: 'count',
+      filters: [{ fieldId: done.id, op: 'neq', value: 'true' }],
+    })
+    const client = await createRecord(
+      orgId, f.clients.id, { [f.link.id]: [yes.id, no.id, unset.id] }, A,
+    )
+    const read = await getRecordEnriched(orgId, f.clients.id, client.id)
+    expect(read!.display[notDone.id]).toBe(2) // false + never-set; not the checked row
+  })
+
   it('neq keeps is-distinct-from semantics: empty values match', async () => {
     const f = await fixture()
     const { ana, cyd } = await seedAssignments(f)
@@ -236,6 +256,27 @@ describe('filters validation (createField / updateField)', () => {
         filters: [{ fieldId: inverseId, op: 'is_empty' }],
       }),
     ).rejects.toThrow(/concrete/)
+  })
+
+  it('rejects multi_select filter fields (array-membership semantics pending)', async () => {
+    const f = await fixture()
+    const tags = await createField(
+      orgId,
+      f.asg.id,
+      {
+        name: 'Tags',
+        type: 'multi_select',
+        options: { choices: [{ id: 't1', name: 'T1', color: 'blue' }] },
+      },
+      A,
+    )
+    await expect(
+      rollup(f, 'bad', {
+        recordLinkFieldId: f.link.id,
+        aggregate: 'count',
+        filters: [{ fieldId: tags.id, op: 'eq', value: 't1' }],
+      }),
+    ).rejects.toThrow(/multi_select fields cannot be used in lookup\/rollup filters yet/)
   })
 
   it('rejects ops outside the v1 grammar and bad shapes', async () => {

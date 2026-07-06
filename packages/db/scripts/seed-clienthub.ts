@@ -152,6 +152,28 @@ async function ensureLink(
   name: string,
   targetTableId: string,
 ): Promise<EngineField> {
+  // Creating a linked_record auto-creates an inverse on the TARGET table named after the
+  // source table. In the validate pass, when this link is about to be created (it doesn't
+  // exist yet) and the target table already exists, that auto-name must be free on the
+  // target — or already be the expected linked_record back at the source. Anything else
+  // (say, a text field squatting on the name) is a conflict that aborts before any create,
+  // never mid-create.
+  if (phase === 'validate' && !isPendingId(targetTableId)) {
+    const linkExists = isPendingId(tableId)
+      ? false
+      : (await listFields(orgId, tableId)).some((f) => f.name === name)
+    if (!linkExists) {
+      const inverseName = tableNames.get(tableId) ?? ''
+      const clash = (await listFields(orgId, targetTableId)).find((f) => f.name === inverseName)
+      if (clash && !(clash.type === 'linked_record' && clash.options.linkedTableId === tableId)) {
+        conflicts.push(
+          `Seed conflict: creating the '${name}' link on '${inverseName}' would auto-create ` +
+            `an inverse field '${inverseName}' on '${tableNames.get(targetTableId)}', but a ` +
+            `${clash.type} field with that name already exists there — resolve manually`,
+        )
+      }
+    }
+  }
   const { field, created } = await ensureField(orgId, tableId, {
     name,
     type: 'linked_record',
@@ -394,14 +416,14 @@ async function seed(orgId: string) {
       )
     }
   }
-  if (!contactsPreexisting) {
-    // The doc-09 half of the union (sans the Leads link, which the salescrm seed owns).
-    await ensureField(orgId, contacts.id, { name: 'First Name', type: 'text' })
-    await ensureField(orgId, contacts.id, { name: 'Last Name', type: 'text' })
-    await ensureField(orgId, contacts.id, { name: 'Email', type: 'email' })
-    await ensureField(orgId, contacts.id, { name: 'Job Title', type: 'text' })
-    await ensureField(orgId, contacts.id, { name: 'Notes', type: 'long_text' })
-  }
+  // The doc-09 half of the union (sans the Leads link, which the salescrm seed owns).
+  // Runs even when Contacts preexists: ensureField is idempotent, so a crashed or partial
+  // earlier run self-heals here instead of staying half-fielded forever.
+  await ensureField(orgId, contacts.id, { name: 'First Name', type: 'text' })
+  await ensureField(orgId, contacts.id, { name: 'Last Name', type: 'text' })
+  await ensureField(orgId, contacts.id, { name: 'Email', type: 'email' })
+  await ensureField(orgId, contacts.id, { name: 'Job Title', type: 'text' })
+  await ensureField(orgId, contacts.id, { name: 'Notes', type: 'long_text' })
 
   // --- Clients: identity + comms/automation groups (docs/10 field order) ----------------
   await ensureField(orgId, clients.id, { name: 'Client', type: 'text' }) // primary
@@ -496,6 +518,25 @@ async function seed(orgId: string) {
   // --- Assignments (temporal junction; Role/Department are the assignment's own, not
   // lookups — the reference's lookup chain is what made "Active PM" a 4-formula hack) ----
   const assignClientLink = await ensureLink(orgId, assignments.id, 'Client', clients.id)
+  // The derived rollups on Clients hang off this link's auto-inverse ('Assignments' on
+  // Clients). When the link preexists, its options.inverseFieldId must resolve to a real
+  // linked_record field on Clients pointing back at Assignments — verified HERE, in the
+  // validate pass, so a broken inverse aborts with zero writes instead of mid-create.
+  // (A pending id means this run creates the link, and the engine wires the inverse.)
+  if (phase === 'validate' && !isPendingId(assignClientLink.id)) {
+    const inverseId = assignClientLink.options.inverseFieldId
+    const clientsFields = isPendingId(clients.id) ? [] : await listFields(orgId, clients.id)
+    const inverse = inverseId ? clientsFields.find((f) => f.id === inverseId) : undefined
+    if (
+      !inverse ||
+      inverse.type !== 'linked_record' ||
+      inverse.options.linkedTableId !== assignments.id
+    ) {
+      conflicts.push(
+        `Seed conflict: Assignments 'Client' link has no usable inverse on Clients — resolve manually`,
+      )
+    }
+  }
   await ensureLink(orgId, assignments.id, 'Team Member', teamMembers.id)
   const { field: assignRoleF } = await ensureField(orgId, assignments.id, {
     name: 'Role',
@@ -722,7 +763,9 @@ async function seed(orgId: string) {
   await ensureView(orgId, promptDocCycles.id, 'Grid', 'grid')
   await ensureView(orgId, discountCodes.id, 'Grid', 'grid')
   await ensureView(orgId, techStack.id, 'Grid', 'grid')
-  if (!contactsPreexisting) await ensureView(orgId, contacts.id, 'Grid', 'grid')
+  // Idempotent even when Contacts preexists (salescrm seeds the same 'Grid' view) — a
+  // crashed earlier run that created the table but not the view self-heals on rerun.
+  await ensureView(orgId, contacts.id, 'Grid', 'grid')
 }
 
 async function main() {
