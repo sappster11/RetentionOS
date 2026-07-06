@@ -109,6 +109,11 @@ export interface FieldOptions {
   targetFieldId?: string
   /** Rollup only: how to aggregate the collected target values. */
   aggregate?: RollupAggregate
+  /**
+   * Optional AND-ed conditions over the linked table's CONCRETE fields; only linked rows
+   * that match are pulled (lookup) or aggregated (rollup). See LinkFilterCondition.
+   */
+  filters?: LinkFilterCondition[]
   // --- formula ---
   /**
    * Formula only: an arithmetic expression over same-record number/currency/percent fields,
@@ -120,9 +125,43 @@ export interface FieldOptions {
 
 export type ViewType = 'grid' | 'kanban'
 
+/** The full view-filter operator vocabulary (queryRecords' SQL grammar). */
+export const VIEW_FILTER_OPS = [
+  'eq',
+  'neq',
+  'contains',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'is_empty',
+  'is_not_empty',
+] as const
+export type ViewFilterOp = (typeof VIEW_FILTER_OPS)[number]
+
 export interface FilterCondition {
   fieldId: string
-  op: 'eq' | 'neq' | 'contains' | 'gt' | 'gte' | 'lt' | 'lte' | 'is_empty' | 'is_not_empty'
+  op: ViewFilterOp
+  value?: unknown
+}
+
+/**
+ * The subset of the view-filter grammar available in lookup/rollup `filters` (v1).
+ * Same operator names, same semantics: `neq` keeps its is-distinct-from behavior,
+ * so empty values MATCH a neq condition.
+ */
+export const LINK_FILTER_OPS = ['eq', 'neq', 'is_empty', 'is_not_empty'] as const satisfies readonly ViewFilterOp[]
+export type LinkFilterOp = (typeof LINK_FILTER_OPS)[number]
+
+/**
+ * One condition in a lookup/rollup's optional `filters` clause. Conditions are AND-ed and
+ * evaluated over the LINKED table's rows (concrete fields only) during enrichment, before
+ * the lookup pulls values / the rollup aggregates. `value` is required for eq/neq and
+ * forbidden for is_empty/is_not_empty.
+ */
+export interface LinkFilterCondition {
+  fieldId: string
+  op: LinkFilterOp
   value?: unknown
 }
 

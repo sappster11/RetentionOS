@@ -8,6 +8,7 @@
 
 import { query } from '@retentionos/db'
 import { evaluateFormula, parseFormula } from './formula'
+import { matchesLinkFilters } from './linkFilters'
 import { EngineError, isComputedType } from './types'
 import type {
   Attachment,
@@ -15,6 +16,7 @@ import type {
   EngineRecord,
   EnrichedRecord,
   LinkedRecordRef,
+  LinkFilterCondition,
   RecordDisplay,
   RollupAggregate,
 } from './types'
@@ -216,6 +218,21 @@ function targetFieldMissing(
   return false
 }
 
+/**
+ * Stale-FILTER safety, same pattern as targetFieldMissing: if any filters[].fieldId no
+ * longer exists on the linked table, the lookup/rollup computes as empty — never a crash,
+ * never stale data. `targetFields` undefined means no linked rows were loaded, which is
+ * empty-set semantics anyway.
+ */
+function filterFieldMissing(
+  filters: LinkFilterCondition[] | undefined,
+  targetFields: EngineField[] | undefined,
+): boolean {
+  if (!filters || filters.length === 0) return false
+  if (!targetFields) return true
+  return filters.some((c) => !targetFields.some((tf) => tf.id === c.fieldId))
+}
+
 /** Round to a field's configured precision (currency defaults to 2; otherwise no rounding). */
 function roundToPrecision(v: number, field: EngineField): number {
   let p = field.options.precision
@@ -225,23 +242,29 @@ function roundToPrecision(v: number, field: EngineField): number {
   return Math.round(v * f) / f
 }
 
-/** Collect the target-field values for a lookup/rollup, one entry per linked record. */
-function collectTargetValues(
+/**
+ * Resolve one record's linked rows (in link order) for a lookup/rollup, applying the
+ * field's optional AND-ed `filters` in this same in-memory pass — the target rows were
+ * already batch-fetched (one query per linked table), so filtering adds no queries.
+ */
+function collectLinkedRows(
   linkFieldId: string | undefined,
-  targetFieldId: string | undefined,
   rec: EngineRecord,
   linksByKey: Map<string, string[]>,
   targetRecById: Map<string, TargetRowLike>,
-): unknown[] {
+  filters: LinkFilterCondition[] | undefined,
+  targetFields: EngineField[] | undefined,
+): TargetRowLike[] {
   if (!linkFieldId) return []
   const ids = linksByKey.get(`${linkFieldId}:${rec.id}`) ?? []
-  const out: unknown[] = []
+  const rows: TargetRowLike[] = []
   for (const id of ids) {
     const t = targetRecById.get(id)
-    if (!t) continue
-    out.push(targetFieldId ? t.values[targetFieldId] ?? null : null)
+    if (t) rows.push(t)
   }
-  return out
+  if (!filters || filters.length === 0) return rows
+  const fieldsById = new Map((targetFields ?? []).map((f) => [f.id, f]))
+  return rows.filter((r) => matchesLinkFilters(r.values, filters, fieldsById))
 }
 
 function computeLookup(
@@ -252,15 +275,20 @@ function computeLookup(
   linksByKey: Map<string, string[]>,
   targetRecById: Map<string, TargetRowLike>,
 ): unknown[] {
-  // If the link or target field was deleted, the lookup reads as empty rather than stale.
+  // If the link, target, or any filter field was deleted, the lookup reads as empty
+  // rather than stale.
   if (targetFieldMissing(linkField, field.options.targetFieldId, targetFields)) return []
-  return collectTargetValues(
+  if (filterFieldMissing(field.options.filters, targetFields)) return []
+  const targetFieldId = field.options.targetFieldId
+  const rows = collectLinkedRows(
     field.options.recordLinkFieldId,
-    field.options.targetFieldId,
     rec,
     linksByKey,
     targetRecById,
+    field.options.filters,
+    targetFields,
   )
+  return rows.map((r) => (targetFieldId ? r.values[targetFieldId] ?? null : null))
 }
 
 function computeRollup(
@@ -273,28 +301,45 @@ function computeRollup(
 ): number | string | null {
   const aggregate = (field.options.aggregate ?? 'count') as RollupAggregate
   const linkFieldId = field.options.recordLinkFieldId
+  const filters = field.options.filters
   // count only needs the link field; non-count also needs the target field to still exist.
+  // A stale filter field (deleted on the linked table) makes EVERY aggregate compute as
+  // empty — 0 for count/sum, null for avg/min/max — never stale data.
   const missing =
-    aggregate === 'count'
+    (aggregate === 'count'
       ? !linkField || linkField.type !== 'linked_record'
-      : targetFieldMissing(linkField, field.options.targetFieldId, targetFields)
-  if (aggregate === 'count') {
-    if (missing) return 0
-    const ids = linkFieldId ? linksByKey.get(`${linkFieldId}:${rec.id}`) ?? [] : []
-    return ids.length
-  }
-  const raw = missing
+      : targetFieldMissing(linkField, field.options.targetFieldId, targetFields)) ||
+    filterFieldMissing(filters, targetFields)
+  const rows = missing
     ? []
-    : collectTargetValues(linkFieldId, field.options.targetFieldId, rec, linksByKey, targetRecById)
+    : collectLinkedRows(linkFieldId, rec, linksByKey, targetRecById, filters, targetFields)
+  if (aggregate === 'count') return rows.length
+
+  const targetFieldId = field.options.targetFieldId
+  const raw = rows.map((r) => (targetFieldId ? r.values[targetFieldId] ?? null : null))
   const present = raw.filter((v) => v !== null && v !== undefined && v !== '')
 
   if (aggregate === 'concat') {
     return present.map((v) => String(v)).join(', ')
   }
+  const targetField = targetFields?.find((tf) => tf.id === targetFieldId)
+  // Date/datetime min/max: ISO strings order lexicographically ≡ chronologically, so compare
+  // as strings and return the winning ISO string untouched — never through the numeric path.
+  if (
+    (aggregate === 'min' || aggregate === 'max') &&
+    (targetField?.type === 'date' || targetField?.type === 'datetime')
+  ) {
+    const strs = present.map((v) => String(v))
+    if (strs.length === 0) return null
+    return strs.reduce((a, b) => (aggregate === 'min' ? (b < a ? b : a) : (b > a ? b : a)))
+  }
   // Numeric aggregates: sum/avg/min/max over numeric-coercible values. The result is rounded
-  // to the TARGET field's precision (currency defaults to 2) so float drift (0.1+0.2) is clean.
-  const targetField = targetFields?.find((tf) => tf.id === field.options.targetFieldId)
-  const round = (v: number) => (targetField ? roundToPrecision(v, targetField) : v)
+  // to the TARGET field's precision (currency defaults to 2) so float drift (0.1+0.2) is
+  // clean. Precision rounding applies ONLY to numeric target types.
+  const numericTarget =
+    targetField &&
+    (targetField.type === 'number' || targetField.type === 'currency' || targetField.type === 'percent')
+  const round = (v: number) => (numericTarget ? roundToPrecision(v, targetField) : v)
   const nums = present.map((v) => Number(v)).filter((n) => !Number.isNaN(n))
   if (aggregate === 'sum') return round(nums.reduce((a, b) => a + b, 0))
   if (nums.length === 0) return null // avg/min/max over an empty set → null

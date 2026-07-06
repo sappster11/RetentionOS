@@ -5,6 +5,7 @@
 // second, looser validator anywhere.
 
 import { parseFormula } from './formula'
+import { validateLinkFilters } from './linkFilters'
 import { EngineError, FIELD_TYPES, isComputedType } from './types'
 import type { Attachment, EngineField, FieldOptions, FieldType, SelectChoice } from './types'
 
@@ -59,7 +60,7 @@ export function validateFieldOptions(type: FieldType, options: FieldOptions | un
     if (typeof opts.targetFieldId !== 'string' || !opts.targetFieldId) {
       throw new EngineError('A lookup field requires options.targetFieldId.', 'bad_options')
     }
-    return opts
+    return withLinkFilters(opts)
   }
   if (type === 'rollup') {
     if (typeof opts.recordLinkFieldId !== 'string' || !opts.recordLinkFieldId) {
@@ -73,7 +74,7 @@ export function validateFieldOptions(type: FieldType, options: FieldOptions | un
     if (opts.aggregate !== 'count' && (typeof opts.targetFieldId !== 'string' || !opts.targetFieldId)) {
       throw new EngineError(`A "${opts.aggregate}" rollup requires options.targetFieldId.`, 'bad_options')
     }
-    return opts
+    return withLinkFilters(opts)
   }
   if (type === 'formula') {
     // Syntactic check only; the referenced fields' existence + type is verified with a DB
@@ -83,6 +84,12 @@ export function validateFieldOptions(type: FieldType, options: FieldOptions | un
     return opts
   }
   return opts
+}
+
+/** Canonicalize a lookup/rollup's optional filters clause (shape check; DB checks in engine). */
+function withLinkFilters(opts: FieldOptions): FieldOptions {
+  if (opts.filters === undefined) return opts
+  return { ...opts, filters: validateLinkFilters(opts.filters) }
 }
 
 function choiceIds(field: EngineField): Set<string> {

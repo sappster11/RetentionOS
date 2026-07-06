@@ -247,6 +247,8 @@ async function insertField(
  *  - lookup/rollup.recordLinkFieldId must be a linked_record field ON THIS table.
  *  - lookup/rollup.targetFieldId must be a CONCRETE (non-computed) field on the linked table
  *    (no lookup-of-lookup chains). Count rollups may omit targetFieldId.
+ *  - lookup/rollup.filters[].fieldId must each be a CONCRETE (non-computed, non-linked)
+ *    field on the linked table (their conditions evaluate against linked-row values).
  */
 async function assertRelationOptions(
   orgId: string,
@@ -278,6 +280,28 @@ async function assertRelationOptions(
       }
       if (isComputedType(targetField.type)) {
         throw new EngineError('targetFieldId must be a concrete (non-computed) field — no lookup chains.', 'bad_options')
+      }
+    }
+    if (options.filters && options.filters.length > 0) {
+      const linkedFields = await query<EngineField>(
+        `select ${FIELD_COLS} from public.engine_fields where table_id = $1`,
+        [targetTableId],
+      )
+      const linkedById = new Map(linkedFields.map((f) => [f.id, f]))
+      for (const c of options.filters) {
+        const ff = linkedById.get(c.fieldId)
+        if (!ff) {
+          throw new EngineError(
+            `Filter fieldId "${c.fieldId}" is not a field on the linked table.`,
+            'bad_options',
+          )
+        }
+        if (isComputedType(ff.type) || ff.type === 'linked_record') {
+          throw new EngineError(
+            `Filter field "${ff.name}" must be a concrete (non-computed, non-linked) field on the linked table.`,
+            'bad_options',
+          )
+        }
       }
     }
   }
@@ -426,9 +450,10 @@ export async function updateField(
         inverseFieldId: existing.options.inverseFieldId,
       }
     }
-    // A formula's new expression must re-pass the same-table/numeric-field checks as on create.
-    if (existing.type === 'formula') {
-      await assertRelationOptions(orgId, tableId, 'formula', options)
+    // New options must re-pass the same DB-backed checks as on create: a formula's
+    // expression, and a lookup/rollup's recordLinkFieldId / targetFieldId / filters.
+    if (existing.type === 'formula' || existing.type === 'lookup' || existing.type === 'rollup') {
+      await assertRelationOptions(orgId, tableId, existing.type, options)
     }
     params.push(JSON.stringify(options))
     sets.push(`options = $${params.length}::jsonb`)

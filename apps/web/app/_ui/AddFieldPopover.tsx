@@ -1,7 +1,15 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import type { EngineField, EngineTable, FieldOptions, FieldType, SelectChoice } from '@retentionos/engine'
+import type {
+  EngineField,
+  EngineTable,
+  FieldOptions,
+  FieldType,
+  LinkFilterCondition,
+  LinkFilterOp,
+  SelectChoice,
+} from '@retentionos/engine'
 import { COMPUTED_FIELD_TYPES } from './fieldMeta'
 import { api } from './apiClient'
 import { buttonGhost, buttonPrimary, inputStyle } from './primitives'
@@ -42,6 +50,21 @@ const ROLLUP_AGGREGATES: { value: string; label: string }[] = [
 ]
 const COLOR_NAMES = Object.keys(CHOICE_COLORS)
 
+// Lookup/rollup "Only include records where…" condition operators (the engine's
+// LINK_FILTER_OPS vocabulary, labeled for humans).
+const FILTER_OPS: { value: LinkFilterOp; label: string }[] = [
+  { value: 'eq', label: 'is' },
+  { value: 'neq', label: 'is not' },
+  { value: 'is_empty', label: 'is empty' },
+  { value: 'is_not_empty', label: 'is not empty' },
+]
+
+interface FilterRow {
+  fieldId: string
+  op: LinkFilterOp
+  value: string
+}
+
 let choiceSeq = 0
 function newChoiceId() {
   choiceSeq += 1
@@ -71,6 +94,7 @@ export function AddFieldPopover({
   const [recordLinkFieldId, setRecordLinkFieldId] = useState('')
   const [targetFieldId, setTargetFieldId] = useState('')
   const [aggregate, setAggregate] = useState('count')
+  const [filters, setFilters] = useState<FilterRow[]>([])
   const [tables, setTables] = useState<EngineTable[]>([])
   const [targetFields, setTargetFields] = useState<EngineField[]>([])
   const [expression, setExpression] = useState('')
@@ -92,6 +116,12 @@ export function AddFieldPopover({
     [fields],
   )
   const fieldNameById = useMemo(() => new Map(fields.map((f) => [f.id, f.name])), [fields])
+  // Linked-table fields a lookup/rollup filter may condition on: concrete only (the
+  // engine rejects computed and linked_record filter fields).
+  const filterableFields = useMemo(
+    () => targetFields.filter((f) => f.type !== 'linked_record'),
+    [targetFields],
+  )
 
   // Render {fld:ID} tokens as {fld:Name} for the textarea; stored value stays canonical (IDs).
   function displayExpression(expr: string): string {
@@ -124,15 +154,27 @@ export function AddFieldPopover({
       .catch(() => setTargetFields([]))
   }, [needsLinkPicker, recordLinkFieldId, linkFields])
 
+  function buildFilters(): LinkFilterCondition[] | undefined {
+    const rows = filters.filter((r) => r.fieldId)
+    if (rows.length === 0) return undefined
+    return rows.map((r) => ({
+      fieldId: r.fieldId,
+      op: r.op,
+      ...(r.op === 'eq' || r.op === 'neq' ? { value: r.value } : {}),
+    }))
+  }
+
   function buildOptions(): FieldOptions | undefined {
     if (isSelect) return { choices: choices.filter((c) => c.name.trim()) }
     if (isLinked) return { linkedTableId }
-    if (isLookup) return { recordLinkFieldId, targetFieldId }
+    const linkFilters = needsLinkPicker ? buildFilters() : undefined
+    if (isLookup) return { recordLinkFieldId, targetFieldId, ...(linkFilters ? { filters: linkFilters } : {}) }
     if (isRollup)
       return {
         recordLinkFieldId,
         aggregate: aggregate as FieldOptions['aggregate'],
         ...(aggregate === 'count' && !targetFieldId ? {} : { targetFieldId }),
+        ...(linkFilters ? { filters: linkFilters } : {}),
       }
     if (isFormula) return { expression: expression.trim() }
     return undefined
@@ -257,6 +299,7 @@ export function AddFieldPopover({
                   onChange={(e) => {
                     setRecordLinkFieldId(e.target.value)
                     setTargetFieldId('')
+                    setFilters([]) // conditions belong to the previous linked table
                   }}
                   style={inputStyle}
                 >
@@ -293,6 +336,101 @@ export function AddFieldPopover({
                   ))}
                 </select>
               </label>
+            ) : null}
+            {recordLinkFieldId && filterableFields.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Only include records where…
+                </span>
+                {filters.map((row, i) => {
+                  const needsValue = row.op === 'eq' || row.op === 'neq'
+                  return (
+                    <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <select
+                          value={row.fieldId}
+                          onChange={(e) =>
+                            setFilters((fs) => fs.map((x, j) => (j === i ? { ...x, fieldId: e.target.value } : x)))
+                          }
+                          style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+                        >
+                          <option value="">— field —</option>
+                          {filterableFields.map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.name}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={row.op}
+                          onChange={(e) =>
+                            setFilters((fs) =>
+                              fs.map((x, j) => (j === i ? { ...x, op: e.target.value as LinkFilterOp } : x)),
+                            )
+                          }
+                          style={{ ...inputStyle, width: 104 }}
+                        >
+                          {FILTER_OPS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => setFilters((fs) => fs.filter((_, j) => j !== i))}
+                          title="Remove condition"
+                          style={{ ...buttonGhost, padding: '2px 7px' }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      {needsValue
+                        ? (() => {
+                            const setValue = (v: string) =>
+                              setFilters((fs) => fs.map((x, j) => (j === i ? { ...x, value: v } : x)))
+                            const ff = filterableFields.find((f) => f.id === row.fieldId)
+                            // Selects store choice IDS — offer the choices, not a free-text box.
+                            if (ff && (ff.type === 'single_select' || ff.type === 'multi_select')) {
+                              return (
+                                <select value={row.value} onChange={(e) => setValue(e.target.value)} style={inputStyle}>
+                                  <option value="">— pick a choice —</option>
+                                  {(ff.options.choices ?? []).map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              )
+                            }
+                            if (ff?.type === 'checkbox') {
+                              return (
+                                <select value={row.value} onChange={(e) => setValue(e.target.value)} style={inputStyle}>
+                                  <option value="">— pick —</option>
+                                  <option value="true">checked</option>
+                                  <option value="false">unchecked</option>
+                                </select>
+                              )
+                            }
+                            return (
+                              <input
+                                value={row.value}
+                                onChange={(e) => setValue(e.target.value)}
+                                placeholder="Value"
+                                style={inputStyle}
+                              />
+                            )
+                          })()
+                        : null}
+                    </div>
+                  )
+                })}
+                <button
+                  onClick={() => setFilters((fs) => [...fs, { fieldId: '', op: 'eq', value: '' }])}
+                  style={{ ...buttonGhost, padding: '4px 8px', fontSize: 12, alignSelf: 'flex-start' }}
+                >
+                  + Add condition
+                </button>
+              </div>
             ) : null}
           </>
         ) : null}
