@@ -13,6 +13,7 @@
     "migrate": "node scripts/migrate.mjs",
     "seed": "tsx scripts/seed.ts",
     "seed:engine": "tsx scripts/seed-engine.ts",
+    "seed:salescrm": "tsx scripts/seed-salescrm.ts",
     "seed:commerce": "tsx scripts/seed-commerce.ts",
     "seed:pm": "tsx scripts/seed-pm.ts",
     "seed:content": "tsx scripts/seed-content.ts",
