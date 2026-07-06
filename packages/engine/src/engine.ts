@@ -8,7 +8,7 @@ import { getPool, query, queryOne, slugify } from '@retentionos/db'
 import { coerceValue, coerceValues, isFieldType, validateFieldOptions } from './fieldTypes'
 import { parseFormula, referencedFieldIds } from './formula'
 import { enrichRecords, syncLinksForField } from './links'
-import { EngineError, isComputedType } from './types'
+import { EngineError, FormSubmissionError, VIEW_TYPES, isComputedType } from './types'
 import type {
   Actor,
   EngineBase,
@@ -21,6 +21,7 @@ import type {
   FieldOptions,
   FieldType,
   FilterCondition,
+  FormFieldConfig,
   RevisionDiff,
   RevisionOp,
   SortSpec,
@@ -1121,13 +1122,17 @@ export async function createView(
   await assertTable(orgId, tableId)
   if (!input.name?.trim()) throw new EngineError('View name is required.', 'bad_input')
   const type: ViewType = input.type ?? 'grid'
-  if (type !== 'grid' && type !== 'kanban') throw new EngineError(`Unknown view type "${type}".`, 'bad_type')
+  if (!VIEW_TYPES.includes(type)) throw new EngineError(`Unknown view type "${type}".`, 'bad_type')
+  let config: ViewConfig = input.config ?? {}
+  if (type === 'form') {
+    config = await validateFormConfig(orgId, tableId, config, { nameForSlug: input.name.trim() })
+  }
   const pos = input.position ?? (await nextPosition('engine_views', 'table_id', tableId))
   const row = await queryOne<EngineView>(
     `insert into public.engine_views (table_id, name, type, config, position)
      values ($1,$2,$3,$4::jsonb,$5)
      returning ${VIEW_COLS}`,
-    [tableId, input.name.trim(), type, JSON.stringify(input.config ?? {}), pos],
+    [tableId, input.name.trim(), type, JSON.stringify(config), pos],
   )
   if (!row) throw new EngineError('Failed to create view.')
   return row
@@ -1146,7 +1151,27 @@ export async function updateView(
   viewId: string,
   patch: UpdateViewPatch,
 ): Promise<EngineView> {
-  await assertTable(orgId, tableId)
+  const existing = await getView(orgId, tableId, viewId)
+  if (!existing) throw new EngineError('View not found.', 'not_found')
+  if (patch.type !== undefined && !VIEW_TYPES.includes(patch.type)) {
+    throw new EngineError(`Unknown view type "${patch.type}".`, 'bad_type')
+  }
+
+  // If the view is (or becomes) a form, its config must (re)validate as a form config.
+  // publicSlug is engine-owned once minted: an existing slug always survives the patch
+  // (like a linked field's inverseFieldId) so a published /f/ URL can never break.
+  const nextType: ViewType = patch.type ?? existing.type
+  let config = patch.config
+  if (nextType === 'form' && (patch.config !== undefined || patch.type !== undefined)) {
+    const proposed: ViewConfig = patch.config ?? existing.config
+    config = await validateFormConfig(
+      orgId,
+      tableId,
+      { ...proposed, publicSlug: existing.config.publicSlug ?? proposed.publicSlug },
+      { nameForSlug: patch.name?.trim() || existing.name, excludeViewId: viewId },
+    )
+  }
+
   const sets: string[] = []
   const params: unknown[] = [viewId, tableId]
   if (patch.name !== undefined) {
@@ -1161,15 +1186,11 @@ export async function updateView(
     params.push(patch.position)
     sets.push(`position = $${params.length}`)
   }
-  if (patch.config !== undefined) {
-    params.push(JSON.stringify(patch.config))
+  if (config !== undefined) {
+    params.push(JSON.stringify(config))
     sets.push(`config = $${params.length}::jsonb`)
   }
-  if (sets.length === 0) {
-    const existing = await getView(orgId, tableId, viewId)
-    if (!existing) throw new EngineError('View not found.', 'not_found')
-    return existing
-  }
+  if (sets.length === 0) return existing
   const row = await queryOne<EngineView>(
     `update public.engine_views set ${sets.join(', ')}
      where id = $1 and table_id = $2 returning ${VIEW_COLS}`,
@@ -1207,6 +1228,242 @@ export async function getView(
     `select ${VIEW_COLS} from public.engine_views where table_id = $1 and id = $2`,
     [tableId, viewId],
   )
+}
+
+// ---------------------------------------------------------------------------
+// Forms — a view of type 'form' exposes a PUBLIC intake page at /f/<publicSlug>
+// (no auth). The form's config lives on the view (title/description/submitLabel/
+// publicSlug/fields); submissions come back through submitForm, which validates
+// form-level required-ness, coerces via the same per-type coercion as every other
+// write path, and creates the record attributed to actor {type:'api', id:'form:<slug>'}.
+// ---------------------------------------------------------------------------
+
+/** Lowercase url-safe slug: letters/digits with inner hyphens ("leads-intake-x7k2p9"). */
+const FORM_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
+
+/**
+ * Which field types a public form may write. Computed types are never writable, and
+ * linked_record is excluded in v1 — a public form must not expose record search/pickers
+ * over org data. (Linked-record form fields are a fast-follow behind a scoping design.)
+ */
+export function isFormWritableType(t: FieldType): boolean {
+  return !isComputedType(t) && t !== 'linked_record'
+}
+
+/** True if any OTHER form view (any org — the /f/ URL space is app-global) owns the slug. */
+async function formSlugTaken(slug: string, excludeViewId?: string): Promise<boolean> {
+  const params: unknown[] = [slug]
+  let exclude = ''
+  if (excludeViewId) {
+    params.push(excludeViewId)
+    exclude = ' and id <> $2'
+  }
+  const clash = await queryOne<{ id: string }>(
+    `select id from public.engine_views
+     where type = 'form' and config ->> 'publicSlug' = $1${exclude} limit 1`,
+    params,
+  )
+  return !!clash
+}
+
+/** Mint a unique public slug: slugified base + a random 6-char token ("leads-x7k2p9"). */
+async function uniqueFormSlug(base: string): Promise<string> {
+  const root = slugify(base) || 'form'
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const candidate = `${root}-${Math.random().toString(36).slice(2, 8)}`
+    if (FORM_SLUG_RE.test(candidate) && !(await formSlugTaken(candidate))) return candidate
+  }
+}
+
+/** Reject a non-string / empty-after-trim optional text config key; return the trimmed value. */
+function optionalText(value: unknown, key: string): string | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string') {
+    throw new EngineError(`Form config.${key} must be a string.`, 'bad_options')
+  }
+  const trimmed = value.trim()
+  return trimmed ? trimmed : undefined
+}
+
+/**
+ * Validate + normalize a form view's config. Enforces: fields[] reference real, form-
+ * writable fields on THIS table (no computed, no linked_record, no duplicates); text keys
+ * are strings; publicSlug is url-safe and unique (minted here when absent). Grid-only keys
+ * (filters/sorts/…) are dropped — they don't apply to a form.
+ */
+async function validateFormConfig(
+  orgId: string,
+  tableId: string,
+  config: ViewConfig,
+  opts: { nameForSlug: string; excludeViewId?: string },
+): Promise<ViewConfig> {
+  const tableFields = await listFields(orgId, tableId)
+  const byId = new Map(tableFields.map((f) => [f.id, f]))
+
+  const rawFields = config.fields ?? []
+  if (!Array.isArray(rawFields)) {
+    throw new EngineError('Form config.fields must be an array.', 'bad_options')
+  }
+  const seen = new Set<string>()
+  const fields: FormFieldConfig[] = rawFields.map((fc) => {
+    if (typeof fc !== 'object' || fc === null || typeof fc.fieldId !== 'string' || !fc.fieldId) {
+      throw new EngineError('Each form field needs a string fieldId.', 'bad_options')
+    }
+    const field = byId.get(fc.fieldId)
+    if (!field) {
+      throw new EngineError(`Form field "${fc.fieldId}" is not a field on this table.`, 'bad_options')
+    }
+    if (!isFormWritableType(field.type)) {
+      throw new EngineError(
+        `Form field "${field.name}" is ${field.type} — computed and linked-record fields cannot be on a public form.`,
+        'bad_options',
+      )
+    }
+    if (seen.has(fc.fieldId)) {
+      throw new EngineError(`Form field "${field.name}" appears more than once.`, 'bad_options')
+    }
+    seen.add(fc.fieldId)
+    const label = optionalText(fc.label, 'fields[].label')
+    const helpText = optionalText(fc.helpText, 'fields[].helpText')
+    return {
+      fieldId: fc.fieldId,
+      required: fc.required === true,
+      ...(label ? { label } : {}),
+      ...(helpText ? { helpText } : {}),
+    }
+  })
+
+  let publicSlug = config.publicSlug
+  if (publicSlug !== undefined) {
+    if (typeof publicSlug !== 'string' || !FORM_SLUG_RE.test(publicSlug)) {
+      throw new EngineError(
+        'Form publicSlug must be url-safe: lowercase letters, digits, and inner hyphens.',
+        'bad_options',
+      )
+    }
+    if (await formSlugTaken(publicSlug, opts.excludeViewId)) {
+      throw new EngineError(`Form slug "${publicSlug}" is already in use.`, 'bad_options')
+    }
+  } else {
+    publicSlug = await uniqueFormSlug(optionalText(config.title, 'title') ?? opts.nameForSlug)
+  }
+
+  const out: ViewConfig = { fields, publicSlug }
+  const title = optionalText(config.title, 'title')
+  if (title) out.title = title
+  const description = optionalText(config.description, 'description')
+  if (description) out.description = description
+  const submitLabel = optionalText(config.submitLabel, 'submitLabel')
+  if (submitLabel) out.submitLabel = submitLabel
+  return out
+}
+
+/** A form field resolved for rendering: the live field definition + form-level settings. */
+export interface FormField {
+  field: EngineField
+  required: boolean
+  label: string
+  helpText?: string
+}
+
+/** Everything a form renderer needs: the view, its table, and the resolved fields in order. */
+export interface FormDescriptor {
+  view: EngineView
+  table: EngineTable
+  fields: FormField[]
+}
+
+/**
+ * Resolve a public form by its slug — the PUBLIC read used by /f/[slug] (no auth), so org
+ * is optional: omitted, the slug is looked up app-wide (slugs are globally unique). Fields
+ * that were deleted (or are no longer form-writable) since the config was saved are
+ * silently skipped rather than breaking the whole form.
+ */
+export async function getFormBySlug(slug: string, orgId?: string): Promise<FormDescriptor | null> {
+  if (!slug) return null
+  const params: unknown[] = [slug]
+  let orgClause = ''
+  if (orgId) {
+    params.push(orgId)
+    orgClause = ' and t.organization_id = $2'
+  }
+  const row = await queryOne<EngineView & { organization_id: string }>(
+    `select v.id, v.table_id, v.name, v.type, v.config, v.position, v.created_at, v.updated_at,
+            t.organization_id
+     from public.engine_views v
+     join public.engine_tables t on t.id = v.table_id
+     where v.type = 'form' and v.config ->> 'publicSlug' = $1${orgClause}
+     limit 1`,
+    params,
+  )
+  if (!row) return null
+  const { organization_id, ...view } = row
+  const table = await getTable(organization_id, view.table_id)
+  if (!table) return null
+  const tableFields = await listFields(organization_id, view.table_id)
+  const byId = new Map(tableFields.map((f) => [f.id, f]))
+  const fields: FormField[] = []
+  for (const fc of view.config.fields ?? []) {
+    const field = byId.get(fc.fieldId)
+    if (!field || !isFormWritableType(field.type)) continue
+    fields.push({
+      field,
+      required: fc.required === true,
+      label: fc.label?.trim() || field.name,
+      ...(fc.helpText ? { helpText: fc.helpText } : {}),
+    })
+  }
+  return { view: view as EngineView, table, fields }
+}
+
+/**
+ * Handle a public form submission. Validates form-level required-ness and coerces every
+ * provided value through the same per-type coercion as any other write; per-field problems
+ * are collected into ONE FormSubmissionError (code 'form_validation', .fieldErrors keyed by
+ * fieldId) so the renderer can show them inline. On success the record is created with
+ * actor {type:'api', id:'form:<slug>'} — which also writes the create revision.
+ */
+export async function submitForm(
+  slug: string,
+  rawValues: Record<string, unknown>,
+): Promise<{ record: EngineRecord; form: FormDescriptor }> {
+  const form = await getFormBySlug(slug)
+  if (!form) throw new EngineError('Form not found.', 'not_found')
+
+  const byId = new Map(form.fields.map((ff) => [ff.field.id, ff]))
+  for (const key of Object.keys(rawValues)) {
+    if (!byId.has(key)) {
+      throw new EngineError(`Field "${key}" is not on this form.`, 'unknown_field')
+    }
+  }
+
+  const fieldErrors: Record<string, string> = {}
+  const coerced: Record<string, unknown> = {}
+  for (const ff of form.fields) {
+    const raw = rawValues[ff.field.id]
+    const empty =
+      raw === null || raw === undefined || raw === '' || (Array.isArray(raw) && raw.length === 0)
+    if (empty) {
+      if (ff.required) fieldErrors[ff.field.id] = `${ff.label} is required.`
+      continue
+    }
+    try {
+      coerced[ff.field.id] = coerceValue(ff.field, raw)
+    } catch (err) {
+      if (err instanceof EngineError) fieldErrors[ff.field.id] = err.message
+      else throw err
+    }
+  }
+  if (Object.keys(fieldErrors).length > 0) {
+    throw new FormSubmissionError('Some answers need attention.', fieldErrors)
+  }
+
+  const record = await createRecord(form.table.organization_id, form.table.id, coerced, {
+    type: 'api',
+    id: `form:${slug}`,
+  })
+  return { record, form }
 }
 
 // ---------------------------------------------------------------------------

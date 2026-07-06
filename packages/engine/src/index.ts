@@ -38,10 +38,16 @@ export {
   deleteView,
   listViews,
   getView,
+  // forms
+  isFormWritableType,
+  getFormBySlug,
+  submitForm,
   // revisions
   listRecordRevisions,
 } from './engine'
 export type {
+  FormField,
+  FormDescriptor,
   CreateBaseInput,
   UpdateBasePatch,
   CreateTableInput,
