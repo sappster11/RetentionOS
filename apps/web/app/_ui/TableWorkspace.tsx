@@ -22,6 +22,7 @@ import type {
   ViewType,
 } from '@retentionos/engine'
 import { api } from './apiClient'
+import { FormBuilder } from './FormBuilder'
 import { Grid } from './Grid'
 import { KanbanBoard } from './KanbanBoard'
 import { RecordDetailPanel } from './RecordDetailPanel'
@@ -311,6 +312,7 @@ export function TableWorkspace({
         search={search}
         onSearch={setSearch}
         hasActiveView={!!activeView}
+        formSlug={activeView?.type === 'form' ? (activeView.config.publicSlug ?? null) : null}
       />
 
       {error ? (
@@ -329,7 +331,10 @@ export function TableWorkspace({
           />
         ) : null}
 
-        {activeView?.type === 'kanban' ? (
+        {activeView?.type === 'form' ? (
+          // key: remount per view so the builder's text drafts reseed from the view config.
+          <FormBuilder key={activeView.id} fields={fields} view={activeView} onPatchConfig={patchViewConfig} />
+        ) : activeView?.type === 'kanban' ? (
           <KanbanBoard
             fields={visibleFields}
             records={records}

@@ -8,8 +8,10 @@ import { useEffect, useRef, useState } from 'react'
 import type { EngineField, FilterCondition, SortSpec, ViewType } from '@retentionos/engine'
 import {
   ColorIcon,
+  CopyIcon,
   EyeOffIcon,
   FilterIcon,
+  FormIcon,
   GridIcon,
   GroupIcon,
   KanbanIcon,
@@ -49,6 +51,7 @@ export function Toolbar({
   search,
   onSearch,
   hasActiveView,
+  formSlug,
 }: {
   viewName: string
   viewType: ViewType
@@ -64,9 +67,13 @@ export function Toolbar({
   search: string
   onSearch: (q: string) => void
   hasActiveView: boolean
+  /** The active form view's public slug — set only when viewType is 'form'. */
+  formSlug?: string | null
 }) {
   const [pop, setPop] = useState<PopId>(null)
+  const [copied, setCopied] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const isForm = viewType === 'form'
 
   // Close popover on outside click.
   useEffect(() => {
@@ -76,10 +83,6 @@ export function Toolbar({
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
-
-  const hiddenCount = visibleFieldIds ? fields.length - visibleFieldIds.length : 0
-  const sortCount = sorts.length
-  const filterCount = filters.length
 
   return (
     <div
@@ -99,12 +102,98 @@ export function Toolbar({
         <SidebarIcon size={15} />
       </TbBtn>
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 13, padding: '0 6px' }}>
-        {viewType === 'kanban' ? <KanbanIcon size={15} /> : <GridIcon size={15} />}
+        {viewType === 'kanban' ? <KanbanIcon size={15} /> : viewType === 'form' ? <FormIcon size={15} /> : <GridIcon size={15} />}
         {viewName}
       </span>
 
       <div style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 4px' }} />
 
+      {isForm ? (
+        // Form views: Filter/Sort/Hide-fields don't apply — show the share affordance.
+        <>
+          <TbBtn
+            onClick={() => {
+              if (!formSlug) return
+              void navigator.clipboard
+                .writeText(`${window.location.origin}/f/${formSlug}`)
+                .then(() => {
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 1500)
+                })
+                .catch(() => {})
+            }}
+            disabled={!formSlug}
+            active={copied}
+            title="Copy the public form URL"
+          >
+            <CopyIcon size={13} />
+            <span>{copied ? 'Link copied' : 'Copy form link'}</span>
+          </TbBtn>
+          {formSlug ? (
+            <a
+              href={`/f/${formSlug}`}
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: 12.5, color: 'var(--accent)', textDecoration: 'none', padding: '0 6px' }}
+            >
+              Open form ↗
+            </a>
+          ) : null}
+          <div style={{ flex: 1 }} />
+        </>
+      ) : (
+        <ToolbarGridControls
+          pop={pop}
+          setPop={setPop}
+          fields={fields}
+          visibleFieldIds={visibleFieldIds}
+          onSetVisibleFieldIds={onSetVisibleFieldIds}
+          sorts={sorts}
+          onSetSorts={onSetSorts}
+          filters={filters}
+          onSetFilters={onSetFilters}
+          search={search}
+          onSearch={onSearch}
+          hasActiveView={hasActiveView}
+        />
+      )}
+    </div>
+  )
+}
+
+/** The grid/kanban toolbar controls (hidden entirely for form views). */
+function ToolbarGridControls({
+  pop,
+  setPop,
+  fields,
+  visibleFieldIds,
+  onSetVisibleFieldIds,
+  sorts,
+  onSetSorts,
+  filters,
+  onSetFilters,
+  search,
+  onSearch,
+  hasActiveView,
+}: {
+  pop: PopId
+  setPop: React.Dispatch<React.SetStateAction<PopId>>
+  fields: EngineField[]
+  visibleFieldIds: string[] | undefined
+  onSetVisibleFieldIds: (next: string[] | undefined) => void
+  sorts: SortSpec[]
+  onSetSorts: (next: SortSpec[]) => void
+  filters: FilterCondition[]
+  onSetFilters: (next: FilterCondition[]) => void
+  search: string
+  onSearch: (q: string) => void
+  hasActiveView: boolean
+}) {
+  const hiddenCount = visibleFieldIds ? fields.length - visibleFieldIds.length : 0
+  const sortCount = sorts.length
+  const filterCount = filters.length
+  return (
+    <>
       {/* Hide fields */}
       <div style={{ position: 'relative' }}>
         <TbBtn
@@ -174,7 +263,7 @@ export function Toolbar({
         </TbBtn>
         {pop === 'search' ? <SearchPopover search={search} onSearch={onSearch} /> : null}
       </div>
-    </div>
+    </>
   )
 }
 

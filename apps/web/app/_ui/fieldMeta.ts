@@ -16,3 +16,9 @@ export const COMPUTED_FIELD_TYPES: readonly FieldType[] = [
 export function isComputedType(t: FieldType): boolean {
   return COMPUTED_FIELD_TYPES.includes(t)
 }
+
+/** Mirrors the engine's isFormWritableType: what a public form may write (v1: no
+ * computed fields, no linked_record — forms must not expose record search). */
+export function isFormWritableType(t: FieldType): boolean {
+  return !isComputedType(t) && t !== 'linked_record'
+}

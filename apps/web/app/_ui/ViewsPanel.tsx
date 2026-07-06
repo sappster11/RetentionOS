@@ -1,11 +1,13 @@
 'use client'
 
-// The collapsible VIEWS panel for the current table. "Create new…" at top (creates a grid
-// view via the API), a "Find a view" search box, then the view list with a grid icon; the
-// active view is highlighted. Switching a view loads its config (handled by the parent).
+// The collapsible VIEWS panel for the current table. "Create new…" at top (creates a
+// grid/kanban/form view via the API), a "Find a view" search box, then the view list with
+// a type icon; the active view is highlighted. Switching a view loads its config (handled
+// by the parent).
 import { useState } from 'react'
 import type { EngineField, EngineView, ViewConfig, ViewType } from '@retentionos/engine'
-import { GridIcon, KanbanIcon, PlusIcon, SearchIcon, TrashIcon } from './icons'
+import { isFormWritableType } from './fieldMeta'
+import { FormIcon, GridIcon, KanbanIcon, PlusIcon, SearchIcon, TrashIcon } from './icons'
 
 export function ViewsPanel({
   views,
@@ -39,6 +41,15 @@ export function ViewsPanel({
     onCreate(`Kanban ${n}`, 'kanban', { groupByFieldId })
     setMenuOpen(false)
     setPendingKanban(false)
+  }
+  function createForm() {
+    const n = views.filter((v) => v.type === 'form').length + 1
+    // Seed with every form-writable field; form-level required starts from the engine flag.
+    const writable = fields.filter((f) => isFormWritableType(f.type))
+    onCreate(`Form ${n}`, 'form', {
+      fields: writable.map((f) => ({ fieldId: f.id, required: f.required })),
+    })
+    setMenuOpen(false)
   }
 
   return (
@@ -108,6 +119,9 @@ export function ViewsPanel({
                 >
                   <KanbanIcon size={14} /> Kanban
                 </button>
+                <button onClick={createForm} style={menuItem}>
+                  <FormIcon size={14} /> Form
+                </button>
               </>
             ) : (
               <div style={{ padding: 4 }}>
@@ -170,7 +184,7 @@ export function ViewsPanel({
                   fontWeight: active ? 500 : 400,
                 }}
               >
-                {v.type === 'kanban' ? <KanbanIcon size={14} /> : <GridIcon size={14} />}
+                {v.type === 'kanban' ? <KanbanIcon size={14} /> : v.type === 'form' ? <FormIcon size={14} /> : <GridIcon size={14} />}
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {v.name}
                 </span>
