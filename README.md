@@ -44,8 +44,8 @@ Later    forms, wired in-app agent, automations, analytics backbone, multi-user
 - [x] Course-correction plan written (docs/08)
 - [x] Phase A — Engine core *(+ Airtable-parity grid polish)*
 - [x] Phase B — Relations & views *(linked records, lookups, rollups, Kanban, record detail panel)*
-- [ ] Phase C — Agent surface
-- [ ] Phase D — Roam CRM as configuration
+- [x] Phase C — Agent surface *(generic MCP server `@retentionos/mcp-engine`, chat sidebar shell, record history/audit UI)*
+- [ ] Phase D — Roam CRM as configuration *(pre-seeded: Sales CRM per docs/09)*
 
 **Parked from the pre-pivot build** (kept in-tree, out of scope): migrations 0003–0008 and
 their tables, `packages/integrations` (Shopify/Klaviyo/Airtable connectors), the six
