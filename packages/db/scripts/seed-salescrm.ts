@@ -29,13 +29,16 @@
 import { getDefaultOrganization } from '../src/index'
 import { queryOne } from '../src/pool'
 import {
+  createBase,
   createField,
   createTable,
   createView,
+  getBaseBySlug,
   getTableBySlug,
   listFields,
   listViews,
   updateField,
+  updateTable,
 } from '@retentionos/engine'
 import type {
   Actor,
@@ -52,7 +55,9 @@ const SEED_ACTOR: Actor = { type: 'user', id: 'seed' }
 /** FieldOptions plus the description stash (options jsonb passes unknown keys through). */
 type SeedFieldOptions = FieldOptions & { description?: string }
 
+let basesCreated = 0
 let tablesCreated = 0
+let tablesAdopted = 0
 let fieldsCreated = 0
 let inverseFieldsCreated = 0
 let viewsCreated = 0
@@ -91,13 +96,37 @@ async function ensureOrgId(): Promise<string> {
   return row.id
 }
 
+/** Ensure the seed's base exists (matched by slug). Existing base wins — its name/icon are
+ * never overwritten. The validate pass creates nothing ("pending:" sentinel). */
+async function ensureBase(
+  orgId: string,
+  input: { name: string; slug: string; icon: string },
+): Promise<string> {
+  const existing = await getBaseBySlug(orgId, input.slug)
+  if (existing) return existing.id
+  if (phase === 'validate') return `pending:base:${input.slug}`
+  basesCreated += 1
+  const created = await createBase(orgId, input, SEED_ACTOR)
+  return created.id
+}
+
+/** Ensure a table exists (matched by slug) INSIDE the given base. A pre-existing table
+ * with base_id NULL is ADOPTED into the base (this is the backfill path for deployments
+ * that seeded before bases existed); a table already in some base — this one or one the
+ * user moved it to — is left alone. Adoption happens only in the create pass (the
+ * validate pass makes zero writes) and only fills NULL, so it can't conflict. */
 async function ensureTable(
   orgId: string,
+  baseId: string,
   input: { name: string; slug: string; icon: string; description: string },
 ): Promise<EngineTable> {
   const existing = await getTableBySlug(orgId, input.slug)
   if (existing) {
     tableNames.set(existing.id, existing.name)
+    if (phase === 'create' && existing.base_id === null && !isPendingId(baseId)) {
+      tablesAdopted += 1
+      return updateTable(orgId, existing.id, { baseId })
+    }
     return existing
   }
   if (phase === 'validate') {
@@ -106,7 +135,11 @@ async function ensureTable(
     return { ...input, id } as EngineTable
   }
   tablesCreated += 1
-  const created = await createTable(orgId, input, SEED_ACTOR)
+  const created = await createTable(
+    orgId,
+    { ...input, baseId: isPendingId(baseId) ? undefined : baseId },
+    SEED_ACTOR,
+  )
   tableNames.set(created.id, created.name)
   return created
 }
@@ -211,32 +244,37 @@ function sel(...cs: Array<[string, string, string]>): FieldOptions {
 /** The full seed walk. Runs twice: phase='validate' (checks only, zero writes), then —
  * only if no conflicts — phase='create' (writes whatever is missing). */
 async function seed(orgId: string) {
+  // --- Base: every Sales CRM table lives in (or is adopted into) "Sales CRM" -----------
+  const baseId = await ensureBase(orgId, { name: 'Sales CRM', slug: 'sales-crm', icon: '🎯' })
+
   // --- Tables (Leads first so it takes the first tab) --------------------------------
-  const leads = await ensureTable(orgId, {
+  const leads = await ensureTable(orgId, baseId, {
     name: 'Leads',
     slug: 'leads',
     icon: '🎯',
     description: 'Sales pipeline — one row per company from intake to close (docs/09).',
   })
-  const contacts = await ensureTable(orgId, {
+  // Contacts is SHARED with the Client Hub (docs/10) but BELONGS to Sales CRM — this seed
+  // owns its base membership (seed-clienthub never grabs it).
+  const contacts = await ensureTable(orgId, baseId, {
     name: 'Contacts',
     slug: 'contacts',
     icon: '👤',
     description: 'People at lead companies. Separate table so contacts survive lead→client conversion.',
   })
-  const activities = await ensureTable(orgId, {
+  const activities = await ensureTable(orgId, baseId, {
     name: 'Activities',
     slug: 'activities',
     icon: '📞',
     description: 'Calls, emails, meetings, and notes — the timeline on each lead.',
   })
-  const audits = await ensureTable(orgId, {
+  const audits = await ensureTable(orgId, baseId, {
     name: 'Audit Handoffs',
     slug: 'audit-handoffs',
     icon: '🔍',
     description: 'What the audit team needs when a lead reaches the Audit stage.',
   })
-  const agreements = await ensureTable(orgId, {
+  const agreements = await ensureTable(orgId, baseId, {
     name: 'Agreements',
     slug: 'agreements',
     icon: '✍️',
@@ -522,10 +560,11 @@ async function main() {
   await seed(orgId)
 
   console.log(
-    `Sales CRM seed complete: ${tablesCreated} tables, ${fieldsCreated} fields ` +
+    `Sales CRM seed complete: ${basesCreated} bases, ${tablesCreated} tables ` +
+      `(+ ${tablesAdopted} adopted into the base), ${fieldsCreated} fields ` +
       `(+ ${inverseFieldsCreated} auto-inverse links), ${viewsCreated} views created.`,
   )
-  if (tablesCreated + fieldsCreated + viewsCreated === 0) {
+  if (basesCreated + tablesCreated + tablesAdopted + fieldsCreated + viewsCreated === 0) {
     console.log('Everything already present — nothing to do (idempotent re-run).')
   }
 }

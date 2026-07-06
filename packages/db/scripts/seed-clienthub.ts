@@ -32,12 +32,15 @@
 import { getDefaultOrganization } from '../src/index'
 import { queryOne } from '../src/pool'
 import {
+  createBase,
   createField,
   createTable,
   createView,
+  getBaseBySlug,
   getTableBySlug,
   listFields,
   listViews,
+  updateTable,
 } from '@retentionos/engine'
 import type {
   Actor,
@@ -53,7 +56,9 @@ import type {
 
 const SEED_ACTOR: Actor = { type: 'user', id: 'seed' }
 
+let basesCreated = 0
 let tablesCreated = 0
+let tablesAdopted = 0
 let fieldsCreated = 0
 let inverseFieldsCreated = 0
 let viewsCreated = 0
@@ -93,13 +98,38 @@ async function ensureOrgId(): Promise<string> {
   return row.id
 }
 
+/** Ensure the seed's base exists (matched by slug), same contract as seed-salescrm:
+ * existing base wins, validate pass creates nothing ("pending:" sentinel). */
+async function ensureBase(
+  orgId: string,
+  input: { name: string; slug: string; icon: string },
+): Promise<string> {
+  const existing = await getBaseBySlug(orgId, input.slug)
+  if (existing) return existing.id
+  if (phase === 'validate') return `pending:base:${input.slug}`
+  basesCreated += 1
+  const created = await createBase(orgId, input, SEED_ACTOR)
+  return created.id
+}
+
+/** Ensure a table exists (matched by slug), optionally inside a base. With a baseId, a
+ * pre-existing table whose base_id is NULL is ADOPTED into the base (the backfill path
+ * for deployments seeded before bases existed); a table already in ANY base is left
+ * alone. baseId null = leave/create the table ungrouped (the shared-Contacts path —
+ * seed-salescrm owns that table's base membership). Adoption happens only in the create
+ * pass (the validate pass makes zero writes) and only fills NULL, so it can't conflict. */
 async function ensureTable(
   orgId: string,
+  baseId: string | null,
   input: { name: string; slug: string; icon: string; description: string },
 ): Promise<EngineTable> {
   const existing = await getTableBySlug(orgId, input.slug)
   if (existing) {
     tableNames.set(existing.id, existing.name)
+    if (phase === 'create' && baseId && existing.base_id === null && !isPendingId(baseId)) {
+      tablesAdopted += 1
+      return updateTable(orgId, existing.id, { baseId })
+    }
     return existing
   }
   if (phase === 'validate') {
@@ -108,7 +138,11 @@ async function ensureTable(
     return { ...input, id } as EngineTable
   }
   tablesCreated += 1
-  const created = await createTable(orgId, input, SEED_ACTOR)
+  const created = await createTable(
+    orgId,
+    { ...input, baseId: baseId && !isPendingId(baseId) ? baseId : undefined },
+    SEED_ACTOR,
+  )
   tableNames.set(created.id, created.name)
   return created
 }
@@ -346,50 +380,54 @@ async function attemptActivePersonLookup(
 /** The full seed walk. Runs twice: phase='validate' (checks only, zero writes), then —
  * only if no conflicts — phase='create' (writes whatever is missing). */
 async function seed(orgId: string) {
+  // --- Base: every Client Hub table lives in (or is adopted into) "Client Hub".
+  // EXCEPTION: the shared Contacts table belongs to Sales CRM (seed-salescrm owns it).
+  const baseId = await ensureBase(orgId, { name: 'Client Hub', slug: 'client-hub', icon: '🤝' })
+
   // --- Tables (Clients first so it takes the first client-hub tab) ---------------------
-  const clients = await ensureTable(orgId, {
+  const clients = await ensureTable(orgId, baseId, {
     name: 'Clients',
     slug: 'clients',
     icon: '🏢',
     description: 'The client hub — every piece of information we have about a brand (docs/10).',
   })
-  const teamMembers = await ensureTable(orgId, {
+  const teamMembers = await ensureTable(orgId, baseId, {
     name: 'Team Members',
     slug: 'team-members',
     icon: '👥',
     description: 'Roam team roster — assignment targets, Slack/Asana identities.',
   })
-  const assignments = await ensureTable(orgId, {
+  const assignments = await ensureTable(orgId, baseId, {
     name: 'Assignments',
     slug: 'assignments',
     icon: '📌',
     description: 'Temporal junction: who serves which client in which role, from Start to End.',
   })
-  const engagements = await ensureTable(orgId, {
+  const engagements = await ensureTable(orgId, baseId, {
     name: 'Engagements',
     slug: 'engagements',
     icon: '📝',
     description: 'The contract/service record (née Scopes) — economics arrive via Agreement conversion.',
   })
-  const clientDocs = await ensureTable(orgId, {
+  const clientDocs = await ensureTable(orgId, baseId, {
     name: 'Client Docs',
     slug: 'client-docs',
     icon: '📁',
     description: 'Doc links by client, type, and year — replaces per-year URL columns.',
   })
-  const promptDocCycles = await ensureTable(orgId, {
+  const promptDocCycles = await ensureTable(orgId, baseId, {
     name: 'Prompt Doc Cycles',
     slug: 'prompt-doc-cycles',
     icon: '🔄',
     description: 'Monthly questionnaire tracker, written by n8n through /api/v1.',
   })
-  const discountCodes = await ensureTable(orgId, {
+  const discountCodes = await ensureTable(orgId, baseId, {
     name: 'Discount Codes',
     slug: 'discount-codes',
     icon: '🏷️',
     description: 'Client discount codes for email/paid team use.',
   })
-  const techStack = await ensureTable(orgId, {
+  const techStack = await ensureTable(orgId, baseId, {
     name: 'Tech Stack',
     slug: 'tech-stack',
     icon: '🧰',
@@ -398,12 +436,14 @@ async function seed(orgId: string) {
 
   // Contacts is SHARED with the Sales CRM (docs/09) — extend it, never create a twin.
   // If seed:salescrm hasn't run, create it here with the union of both docs' field sets.
+  // Base membership: Contacts BELONGS to Sales CRM (baseId null here — never adopted into
+  // Client Hub); when created by this seed it stays ungrouped until seed:salescrm adopts it.
   let contacts = await getTableBySlug(orgId, 'contacts')
   const contactsPreexisting = contacts !== null
   if (contacts) {
     tableNames.set(contacts.id, contacts.name)
   } else {
-    contacts = await ensureTable(orgId, {
+    contacts = await ensureTable(orgId, null, {
       name: 'Contacts',
       slug: 'contacts',
       icon: '👤',
@@ -786,11 +826,12 @@ async function main() {
   await seed(orgId)
 
   console.log(
-    `Client Hub seed complete: ${tablesCreated} tables, ${fieldsCreated} fields ` +
+    `Client Hub seed complete: ${basesCreated} bases, ${tablesCreated} tables ` +
+      `(+ ${tablesAdopted} adopted into the base), ${fieldsCreated} fields ` +
       `(+ ${inverseFieldsCreated} auto-inverse links), ${viewsCreated} views created.`,
   )
   for (const n of notes) console.log(`note: ${n}`)
-  if (tablesCreated + fieldsCreated + viewsCreated === 0) {
+  if (basesCreated + tablesCreated + tablesAdopted + fieldsCreated + viewsCreated === 0) {
     console.log('Everything already present — nothing to do (idempotent re-run).')
   }
 }
