@@ -168,10 +168,13 @@ export async function enrichRecords(
           return { id, label: t ? labelFor(t, labelFieldId) : 'Unknown' }
         })
       } else if (f.type === 'lookup') {
-        display[f.id] = computeLookup(f, rec, linksByKey, targetRecById)
+        const linkField = f.options.recordLinkFieldId ? byId.get(f.options.recordLinkFieldId) : undefined
+        const targetFields = fieldsByTable.get(linkField?.options.linkedTableId ?? '')
+        display[f.id] = computeLookup(f, rec, linkField, targetFields, linksByKey, targetRecById)
       } else if (f.type === 'rollup') {
         const linkField = f.options.recordLinkFieldId ? byId.get(f.options.recordLinkFieldId) : undefined
-        display[f.id] = computeRollup(f, rec, linkField, linksByKey, targetRecById)
+        const targetFields = fieldsByTable.get(linkField?.options.linkedTableId ?? '')
+        display[f.id] = computeRollup(f, rec, linkField, targetFields, linksByKey, targetRecById)
       } else if (f.type === 'attachment') {
         display[f.id] = Array.isArray(rec.values[f.id]) ? (rec.values[f.id] as Attachment[]) : []
       } else if (f.type === 'autonumber') {
@@ -188,6 +191,36 @@ export async function enrichRecords(
 }
 
 interface TargetRowLike { id: string; values: Record<string, unknown> }
+
+/**
+ * Is the lookup/rollup still wired to fields that exist? A field can be deleted out from
+ * under a computed field (recordLinkFieldId or targetFieldId gone). When that happens we
+ * compute as if the link set were empty (null / empty-set per aggregate) rather than reading
+ * stale values. `targetFields` is the linked table's CURRENT field set (undefined = not
+ * loaded because there were no links, which already yields empty-set semantics).
+ */
+function targetFieldMissing(
+  linkField: EngineField | undefined,
+  targetFieldId: string | undefined,
+  targetFields: EngineField[] | undefined,
+): boolean {
+  // recordLinkFieldId no longer resolves to a linked_record field on this table.
+  if (!linkField || linkField.type !== 'linked_record') return true
+  // A concrete targetFieldId that's no longer present in the linked table's fields.
+  if (targetFieldId && targetFields && !targetFields.some((tf) => tf.id === targetFieldId)) {
+    return true
+  }
+  return false
+}
+
+/** Round to a field's configured precision (currency defaults to 2; otherwise no rounding). */
+function roundToPrecision(v: number, field: EngineField): number {
+  let p = field.options.precision
+  if (p === undefined && field.type === 'currency') p = 2
+  if (p === undefined) return v
+  const f = 10 ** p
+  return Math.round(v * f) / f
+}
 
 /** Collect the target-field values for a lookup/rollup, one entry per linked record. */
 function collectTargetValues(
@@ -211,9 +244,13 @@ function collectTargetValues(
 function computeLookup(
   field: EngineField,
   rec: EngineRecord,
+  linkField: EngineField | undefined,
+  targetFields: EngineField[] | undefined,
   linksByKey: Map<string, string[]>,
   targetRecById: Map<string, TargetRowLike>,
 ): unknown[] {
+  // If the link or target field was deleted, the lookup reads as empty rather than stale.
+  if (targetFieldMissing(linkField, field.options.targetFieldId, targetFields)) return []
   return collectTargetValues(
     field.options.recordLinkFieldId,
     field.options.targetFieldId,
@@ -226,29 +263,41 @@ function computeLookup(
 function computeRollup(
   field: EngineField,
   rec: EngineRecord,
-  _linkField: EngineField | undefined,
+  linkField: EngineField | undefined,
+  targetFields: EngineField[] | undefined,
   linksByKey: Map<string, string[]>,
   targetRecById: Map<string, TargetRowLike>,
 ): number | string | null {
   const aggregate = (field.options.aggregate ?? 'count') as RollupAggregate
   const linkFieldId = field.options.recordLinkFieldId
+  // count only needs the link field; non-count also needs the target field to still exist.
+  const missing =
+    aggregate === 'count'
+      ? !linkField || linkField.type !== 'linked_record'
+      : targetFieldMissing(linkField, field.options.targetFieldId, targetFields)
   if (aggregate === 'count') {
+    if (missing) return 0
     const ids = linkFieldId ? linksByKey.get(`${linkFieldId}:${rec.id}`) ?? [] : []
     return ids.length
   }
-  const raw = collectTargetValues(linkFieldId, field.options.targetFieldId, rec, linksByKey, targetRecById)
+  const raw = missing
+    ? []
+    : collectTargetValues(linkFieldId, field.options.targetFieldId, rec, linksByKey, targetRecById)
   const present = raw.filter((v) => v !== null && v !== undefined && v !== '')
 
   if (aggregate === 'concat') {
     return present.map((v) => String(v)).join(', ')
   }
-  // Numeric aggregates: sum/avg/min/max over numeric-coercible values.
+  // Numeric aggregates: sum/avg/min/max over numeric-coercible values. The result is rounded
+  // to the TARGET field's precision (currency defaults to 2) so float drift (0.1+0.2) is clean.
+  const targetField = targetFields?.find((tf) => tf.id === field.options.targetFieldId)
+  const round = (v: number) => (targetField ? roundToPrecision(v, targetField) : v)
   const nums = present.map((v) => Number(v)).filter((n) => !Number.isNaN(n))
-  if (aggregate === 'sum') return nums.reduce((a, b) => a + b, 0)
+  if (aggregate === 'sum') return round(nums.reduce((a, b) => a + b, 0))
   if (nums.length === 0) return null // avg/min/max over an empty set → null
-  if (aggregate === 'avg') return nums.reduce((a, b) => a + b, 0) / nums.length
-  if (aggregate === 'min') return Math.min(...nums)
-  if (aggregate === 'max') return Math.max(...nums)
+  if (aggregate === 'avg') return round(nums.reduce((a, b) => a + b, 0) / nums.length)
+  if (aggregate === 'min') return round(Math.min(...nums))
+  if (aggregate === 'max') return round(Math.max(...nums))
   return null
 }
 

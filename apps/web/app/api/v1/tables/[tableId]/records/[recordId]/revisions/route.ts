@@ -1,4 +1,4 @@
-import { listRecordRevisions } from '@retentionos/engine'
+import { getRecord, listRecordRevisions } from '@retentionos/engine'
 import { errorResponse, json, resolveOrgId } from '@/lib/api'
 
 type Params = { params: Promise<{ tableId: string; recordId: string }> }
@@ -8,7 +8,11 @@ type Params = { params: Promise<{ tableId: string; recordId: string }> }
 export async function GET(_request: Request, { params }: Params) {
   try {
     const orgId = await resolveOrgId()
-    const { recordId } = await params
+    const { tableId, recordId } = await params
+    // 404 if the record doesn't belong to THIS table (path is scoped to a table; don't leak
+    // another table's revisions through a mismatched tableId).
+    const record = await getRecord(orgId, tableId, recordId)
+    if (!record) return json({ error: 'Record not found.', code: 'not_found' }, 404)
     const revisions = await listRecordRevisions(orgId, recordId)
     return json({ revisions })
   } catch (err) {

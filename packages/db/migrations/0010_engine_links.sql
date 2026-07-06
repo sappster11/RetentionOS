@@ -43,23 +43,31 @@ create index engine_record_links_to_idx   on public.engine_record_links (field_i
 
 -- ---------------------------------------------------------------------------
 -- Row-Level Security. engine_record_links has no org column; it inherits tenancy through
--- its from_record (whose organization_id is the authoritative scope). Same inheritance
--- pattern 0009 uses for engine_fields / engine_views via their parent table.
+-- the records it joins. A link edge is only visible/writable when BOTH endpoints resolve to
+-- the SAME org AND the caller is a member of that org — an edge must never straddle two
+-- orgs, and neither end may belong to an org the user isn't in. Same inheritance pattern
+-- 0009 uses for engine_fields / engine_views, tightened for the two-ended join.
 -- ---------------------------------------------------------------------------
 alter table public.engine_record_links enable row level security;
 
 create policy engine_record_links_rw on public.engine_record_links
   for all using (
     exists (
-      select 1 from public.engine_records r
-      where r.id = engine_record_links.from_record_id
-        and public.is_org_member(r.organization_id)
+      select 1
+      from public.engine_records rf
+      join public.engine_records rt on rt.id = engine_record_links.to_record_id
+      where rf.id = engine_record_links.from_record_id
+        and rf.organization_id = rt.organization_id
+        and public.is_org_member(rf.organization_id)
     )
   )
   with check (
     exists (
-      select 1 from public.engine_records r
-      where r.id = engine_record_links.from_record_id
-        and public.is_org_member(r.organization_id)
+      select 1
+      from public.engine_records rf
+      join public.engine_records rt on rt.id = engine_record_links.to_record_id
+      where rf.id = engine_record_links.from_record_id
+        and rf.organization_id = rt.organization_id
+        and public.is_org_member(rf.organization_id)
     )
   );

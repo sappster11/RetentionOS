@@ -24,21 +24,46 @@ export function LinkedRecordPicker({
   const [query, setQuery] = useState('')
   const wrapRef = useRef<HTMLDivElement>(null)
 
+  // Resolve the linked table's primary field (first by position) — the search column + label.
   useEffect(() => {
     let alive = true
-    Promise.all([api.describeTable(linkedTableId), api.queryRecords(linkedTableId, { limit: 200 })])
-      .then(([desc, page]) => {
-        if (!alive) return
-        setPrimaryFieldId(desc.fields[0]?.id ?? null)
-        setRecords(page.records)
+    api
+      .describeTable(linkedTableId)
+      .then((desc) => {
+        if (alive) setPrimaryFieldId(desc.fields[0]?.id ?? null)
       })
       .catch(() => {
-        if (alive) setRecords([])
+        if (alive) setPrimaryFieldId(null)
       })
     return () => {
       alive = false
     }
   }, [linkedTableId])
+
+  // Server-side search: debounced 250ms `contains` on the primary field, limit 25. An empty
+  // query returns the first 25 by position. Replaces the old fetch-200-then-client-filter.
+  useEffect(() => {
+    if (primaryFieldId === null && query.trim()) return // wait until we know the search column
+    let alive = true
+    const q = query.trim()
+    const handle = setTimeout(() => {
+      api
+        .queryRecords(linkedTableId, {
+          limit: 25,
+          filters: q && primaryFieldId ? [{ fieldId: primaryFieldId, op: 'contains', value: q }] : undefined,
+        })
+        .then((page) => {
+          if (alive) setRecords(page.records)
+        })
+        .catch(() => {
+          if (alive) setRecords([])
+        })
+    }, 250)
+    return () => {
+      alive = false
+      clearTimeout(handle)
+    }
+  }, [linkedTableId, query, primaryFieldId])
 
   // Close on outside click.
   useEffect(() => {
@@ -58,8 +83,8 @@ export function LinkedRecordPicker({
   }
 
   const selected = useMemo(() => new Set(selectedIds), [selectedIds])
-  const q = query.trim().toLowerCase()
-  const filtered = records.filter((r) => (q ? label(r).toLowerCase().includes(q) : true))
+  // Filtering is now server-side (contains on the primary field); render the page as-is.
+  const filtered = records
 
   return (
     <div ref={wrapRef} style={popStyle} onClick={(e) => e.stopPropagation()}>

@@ -138,11 +138,36 @@ export async function updateTable(
 }
 
 export async function deleteTable(orgId: string, tableId: string): Promise<void> {
-  const res = await query<{ id: string }>(
-    'delete from public.engine_tables where organization_id = $1 and id = $2 returning id',
-    [orgId, tableId],
-  )
-  if (res.length === 0) throw new EngineError('Table not found.', 'not_found')
+  const pool = getPool()
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    // Other tables' linked_record fields that point AT this table have no surviving pair once
+    // it's gone — delete those far-side fields in the same tx (their edges cascade via the
+    // engine_record_links.field_id FK). This keeps remaining records readable (enrichRecords
+    // no longer walks a dangling link field).
+    await client.query(
+      `delete from public.engine_fields
+       where type = 'linked_record'
+         and table_id <> $1::uuid
+         and options ->> 'linkedTableId' = $1::text`,
+      [tableId],
+    )
+    const res = await client.query(
+      'delete from public.engine_tables where organization_id = $1 and id = $2 returning id',
+      [orgId, tableId],
+    )
+    if ((res.rowCount ?? 0) === 0) {
+      await client.query('rollback')
+      throw new EngineError('Table not found.', 'not_found')
+    }
+    await client.query('commit')
+  } catch (err) {
+    if (!(err instanceof EngineError)) await client.query('rollback')
+    throw err
+  } finally {
+    client.release()
+  }
 }
 
 export async function listTables(orgId: string): Promise<EngineTable[]> {
@@ -357,7 +382,23 @@ export async function updateField(
   }
   if (patch.options !== undefined) {
     // Type is immutable in Phase A; validate the new options against the existing type.
-    const options = validateFieldOptions(existing.type, patch.options)
+    let options = validateFieldOptions(existing.type, patch.options)
+    if (existing.type === 'linked_record') {
+      // A linked_record field's target and its inverse pairing are structural: repointing
+      // would orphan the far-side inverse field and every edge. Reject repoint; always keep
+      // the existing inverseFieldId (never trust it from the patch — it's engine-owned).
+      if (
+        options.linkedTableId !== undefined &&
+        options.linkedTableId !== existing.options.linkedTableId
+      ) {
+        throw new EngineError('Cannot repoint a linked field; delete and recreate it.', 'bad_input')
+      }
+      options = {
+        ...options,
+        linkedTableId: existing.options.linkedTableId,
+        inverseFieldId: existing.options.inverseFieldId,
+      }
+    }
     params.push(JSON.stringify(options))
     sets.push(`options = $${params.length}::jsonb`)
   }
@@ -620,6 +661,9 @@ export async function updateRecord(
     const record = res.rows[0] as EngineRecord
 
     // Sync any linked_record fields in the patch; diff records {from:[old], to:[new]}.
+    // NOTE: a link change is intentionally logged as a revision only on the EDITED side —
+    // the far-side record's inverse field sees the same edge but gets no revision row (its
+    // history would otherwise gain entries no actor on that record ever made).
     for (const [fieldId, ids] of linkPatch) {
       const field = byId.get(fieldId)!
       const oldIds = await syncLinksForField(client, orgId, field, recordId, ids)

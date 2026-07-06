@@ -51,6 +51,11 @@ export function TableWorkspace({
   const [error, setError] = useState<string | null>(null)
   const [detailRecordId, setDetailRecordId] = useState<string | null>(null)
 
+  // Per-record monotonic generation counter. Each commit bumps its record's generation and
+  // captures the value; a resolved PATCH (or failure-refetch) is applied only if it's still
+  // the latest for that record — so a slow response can't clobber a newer edit (last-write-wins).
+  const genRef = useRef<Map<string, number>>(new Map())
+
   const activeView = useMemo(
     () => views.find((v) => v.id === activeViewId) ?? null,
     [views, activeViewId],
@@ -190,18 +195,30 @@ export function TableWorkspace({
   const commitValue = useCallback(
     async (recordId: string, fieldId: string, raw: unknown) => {
       setError(null)
+      // Bump this record's generation and capture it; only the latest generation may apply.
+      const gen = (genRef.current.get(recordId) ?? 0) + 1
+      genRef.current.set(recordId, gen)
+      const isLatest = () => genRef.current.get(recordId) === gen
+
       setRecords((rs) =>
         rs.map((r) => (r.id === recordId ? { ...r, values: { ...r.values, [fieldId]: raw } } : r)),
       )
       try {
         const updated = await api.updateRecord(table.id, recordId, { [fieldId]: raw })
-        setRecords((rs) => rs.map((r) => (r.id === updated.id ? updated : r)))
+        if (isLatest()) setRecords((rs) => rs.map((r) => (r.id === updated.id ? updated : r)))
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Update failed.')
-        await reload(sorts, filters)
+        // Don't full-reload (would throw away every other in-flight/local edit) — refetch just
+        // this record and merge it, still guarded by the generation check.
+        try {
+          const fresh = await api.getRecord(table.id, recordId)
+          if (isLatest()) setRecords((rs) => rs.map((r) => (r.id === fresh.id ? fresh : r)))
+        } catch {
+          // Refetch failed too (e.g. record deleted) — leave local state; error is already shown.
+        }
       }
     },
-    [table.id, reload, sorts, filters],
+    [table.id],
   )
 
   const commitCell = useCallback(

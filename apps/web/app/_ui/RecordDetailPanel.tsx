@@ -55,8 +55,8 @@ export function RecordDetailPanel({
   /** The record's own primary-field value, shown as the panel title. */
   fieldLabel: string
   onClose: () => void
-  onCommitCell: (field: EngineField, raw: unknown) => void
-  onLinksChanged: (fieldId: string, ids: string[]) => void
+  onCommitCell: (field: EngineField, raw: unknown) => void | Promise<void>
+  onLinksChanged: (fieldId: string, ids: string[]) => void | Promise<void>
 }) {
   const [revisions, setRevisions] = useState<EngineRecordRevision[] | null>(null)
   const [pickerFieldId, setPickerFieldId] = useState<string | null>(null)
@@ -126,8 +126,8 @@ export function RecordDetailPanel({
                       open={pickerFieldId === f.id}
                       onToggle={() => setPickerFieldId((p) => (p === f.id ? null : f.id))}
                       onChange={(ids) => {
-                        onLinksChanged(f.id, ids)
-                        loadRevisions()
+                        // Reload history only AFTER the PATCH lands, so it reflects the new revision.
+                        void Promise.resolve(onLinksChanged(f.id, ids)).then(loadRevisions)
                       }}
                     />
                   ) : (
@@ -139,8 +139,8 @@ export function RecordDetailPanel({
                           display={record.display[f.id]}
                           onCommit={(raw) => {
                             if (computed) return
-                            onCommitCell(f, raw)
-                            loadRevisions()
+                            // Reload history only AFTER the PATCH resolves (new revision is visible).
+                            void Promise.resolve(onCommitCell(f, raw)).then(loadRevisions)
                           }}
                         />
                       </div>

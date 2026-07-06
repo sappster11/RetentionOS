@@ -112,10 +112,15 @@ export function Cell({
     const d = display ?? value
     let text = ''
     if (d != null && d !== '') {
-      text =
-        field.type === 'autonumber'
-          ? String(d)
-          : new Date(String(d)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+      if (field.type === 'autonumber') {
+        text = String(d)
+      } else {
+        // created/last_modified render a date; an unparseable value shows empty, not "Invalid Date".
+        const parsed = new Date(String(d))
+        text = isNaN(parsed.getTime())
+          ? ''
+          : parsed.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+      }
     }
     return (
       <div style={{ padding: cellPad, height: 'var(--row-h)', display: 'flex', alignItems: 'center', justifyContent: field.type === 'autonumber' ? 'flex-end' : 'flex-start', color: 'var(--text-faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
