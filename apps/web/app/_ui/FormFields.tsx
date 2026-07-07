@@ -81,7 +81,18 @@ export function FormCard({
       }}
     >
       <div>
-        <h1 style={{ fontSize: 20, fontWeight: 650, margin: 0, color: 'var(--text)' }}>{title}</h1>
+        <h1
+          style={{
+            fontFamily: 'var(--serif)',
+            fontSize: 24,
+            fontWeight: 400,
+            letterSpacing: '-0.01em',
+            margin: 0,
+            color: 'var(--text)',
+          }}
+        >
+          {title}
+        </h1>
         {description ? (
           <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: 13.5, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
             {description}

@@ -260,8 +260,8 @@ function ConvertLeadSection({
       c.activities ? 'activity logged' : null,
     ].filter(Boolean)
     return (
-      <div style={{ ...convertBoxStyle, background: '#eefbf1', borderColor: '#bfe8ca' }}>
-        <div style={{ fontWeight: 600, color: '#177239' }}>
+      <div style={{ ...convertBoxStyle, background: 'var(--moss-soft)', borderColor: 'var(--moss)' }}>
+        <div style={{ fontWeight: 600, color: 'var(--moss-text)' }}>
           {result.clientCreated ? 'Converted to client.' : 'Linked to existing client.'}
         </div>
         <div style={{ color: 'var(--text-muted)' }}>{counts.join(' · ')}</div>

@@ -2,11 +2,26 @@ import Link from 'next/link'
 import { authEnabled } from '@/lib/auth'
 import { LoginForm } from './LoginForm'
 
+// The door to the studio is ink, like the site: a full dark plate (brand law — plates
+// stay dark in both worlds). data-plate rescopes the tokens so LoginForm's primitives
+// render correctly on the dark ground.
 export default function LoginPage() {
   return (
-    <main style={{ maxWidth: 420, margin: '0 auto', padding: '4rem 1.5rem' }}>
-      <h1 style={{ fontSize: 20, marginBottom: 20 }}>Sign in</h1>
-      <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 20, background: 'var(--bg)' }}>
+    <main
+      data-plate
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '4rem 1.5rem',
+      }}
+    >
+      <div style={{ width: '100%', maxWidth: 380 }}>
+        <div className="wordmark" style={{ fontSize: 30, marginBottom: 28 }}>
+          roam<sup>®</sup>
+        </div>
         {authEnabled ? (
           <LoginForm />
         ) : (

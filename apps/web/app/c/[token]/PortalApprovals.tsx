@@ -2,6 +2,7 @@
 
 // Approval cards for the client portal: Approve or Request changes (with a comment).
 // Actions POST to /api/portal/[token]; state is local-optimistic per card.
+// Brand roles: ember = the action, moss = the confirmed outcome.
 
 import { useState } from 'react'
 
@@ -45,18 +46,27 @@ function ApprovalCard({ token, approval }: { token: string; approval: Approval }
   }
 
   return (
-    <div style={{ border: '1px solid #e4e4e6', borderRadius: 12, background: '#fff', padding: '16px 18px' }}>
+    <div
+      style={{
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius)',
+        background: 'var(--bg)',
+        padding: '16px 18px',
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <span style={{ fontSize: 14.5, fontWeight: 700 }}>{approval.title}</span>
+        <span style={{ fontFamily: 'var(--serif)', fontSize: 16.5 }}>{approval.title}</span>
         {approval.channel ? (
           <span
             style={{
-              fontSize: 10.5,
+              fontSize: 10,
               fontWeight: 600,
+              fontFamily: 'var(--mono)',
               textTransform: 'uppercase',
-              letterSpacing: 0.6,
-              color: '#5b7fa6',
-              background: '#eaf1f9',
+              letterSpacing: '0.08em',
+              color: 'var(--text-muted)',
+              background: 'var(--bg-subtle)',
+              border: '1px solid var(--border)',
               borderRadius: 999,
               padding: '2px 8px',
             }}
@@ -68,7 +78,9 @@ function ApprovalCard({ token, approval }: { token: string; approval: Approval }
       {approval.subject ? (
         <div style={{ fontSize: 13, marginTop: 8 }}>
           <strong>Subject:</strong> {approval.subject}
-          {approval.preview ? <span style={{ color: '#8a8a8a' }}> — {approval.preview}</span> : null}
+          {approval.preview ? (
+            <span style={{ color: 'var(--text-muted)' }}> — {approval.preview}</span>
+          ) : null}
         </div>
       ) : null}
       {approval.body ? (
@@ -77,9 +89,9 @@ function ApprovalCard({ token, approval }: { token: string; approval: Approval }
             fontSize: 13,
             lineHeight: 1.55,
             whiteSpace: 'pre-wrap',
-            background: '#fafafa',
-            border: '1px solid #efeff1',
-            borderRadius: 8,
+            background: 'var(--bg-subtle)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius)',
             padding: '10px 12px',
             marginTop: 10,
             maxHeight: 260,
@@ -92,13 +104,15 @@ function ApprovalCard({ token, approval }: { token: string; approval: Approval }
 
       <div style={{ marginTop: 14 }}>
         {state === 'approved' ? (
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#1e7d4f' }}>✓ Approved — thank you!</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--moss-text)' }}>
+            ✓ Approved — thank you!
+          </span>
         ) : state === 'changes' ? (
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#8a6d1a' }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>
             ✎ Feedback sent — we&apos;re on it.
           </span>
         ) : state === 'error' ? (
-          <span style={{ fontSize: 13, color: '#b04632' }}>
+          <span style={{ fontSize: 13, color: 'var(--danger)' }}>
             Something went wrong — try again or ping us in Slack.
           </span>
         ) : (
@@ -113,8 +127,10 @@ function ApprovalCard({ token, approval }: { token: string; approval: Approval }
                   width: '100%',
                   fontSize: 13,
                   padding: '8px 10px',
-                  border: '1px solid #dcdce0',
-                  borderRadius: 8,
+                  border: '1px solid var(--border-strong)',
+                  borderRadius: 'var(--radius)',
+                  background: 'var(--bg)',
+                  color: 'var(--text)',
                   resize: 'vertical',
                 }}
               />
@@ -127,9 +143,9 @@ function ApprovalCard({ token, approval }: { token: string; approval: Approval }
                   fontSize: 13,
                   fontWeight: 600,
                   color: '#fff',
-                  background: '#1e7d4f',
+                  background: 'var(--accent)',
                   border: 'none',
-                  borderRadius: 8,
+                  borderRadius: 'var(--radius)',
                   padding: '7px 16px',
                   cursor: 'pointer',
                   opacity: state === 'busy' ? 0.6 : 1,
@@ -144,10 +160,10 @@ function ApprovalCard({ token, approval }: { token: string; approval: Approval }
                   style={{
                     fontSize: 13,
                     fontWeight: 600,
-                    color: '#5c5133',
-                    background: '#f5edd6',
-                    border: '1px solid #e2d9b8',
-                    borderRadius: 8,
+                    color: 'var(--text)',
+                    background: 'var(--bg-subtle)',
+                    border: '1px solid var(--border-strong)',
+                    borderRadius: 'var(--radius)',
                     padding: '7px 16px',
                     cursor: 'pointer',
                     opacity: state === 'busy' || !comment.trim() ? 0.6 : 1,
@@ -161,10 +177,10 @@ function ApprovalCard({ token, approval }: { token: string; approval: Approval }
                   style={{
                     fontSize: 13,
                     fontWeight: 600,
-                    color: '#555',
-                    background: '#fff',
-                    border: '1px solid #dcdce0',
-                    borderRadius: 8,
+                    color: 'var(--text-muted)',
+                    background: 'var(--bg)',
+                    border: '1px solid var(--border-strong)',
+                    borderRadius: 'var(--radius)',
                     padding: '7px 16px',
                     cursor: 'pointer',
                   }}

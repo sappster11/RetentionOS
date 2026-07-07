@@ -47,7 +47,8 @@ export default async function Home() {
     { slug: 'brand-voice', title: 'Brand Voice', desc: 'How each brand sounds', icon: '🗣️' },
   ].filter((q) => bySlug(q.slug))
 
-  const statCards: Array<{ label: string; value: string; sub?: string }> = [
+  // Evidence lines are moss; a line that demands attention goes ember (brand color roles).
+  const statCards: Array<{ label: string; value: string; sub?: string; tone?: 'attention' }> = [
     {
       label: 'Open pipeline',
       value: stats.openPipeline ? String(stats.openPipeline.count) : '—',
@@ -57,6 +58,7 @@ export default async function Home() {
       label: 'Overdue follow-ups',
       value: stats.overdueFollowUps != null ? String(stats.overdueFollowUps) : '—',
       sub: stats.overdueFollowUps ? 'work these first' : undefined,
+      tone: 'attention',
     },
     {
       label: 'Active clients',
@@ -72,19 +74,21 @@ export default async function Home() {
   return (
     <div style={{ flex: 1, overflowY: 'auto' }}>
       <div style={{ maxWidth: 1040, margin: '0 auto', padding: '30px 28px 48px' }}>
-        {/* Kicker + title */}
-        <div
-          style={{
-            fontSize: 11.5,
-            fontWeight: 600,
-            letterSpacing: 1.2,
-            textTransform: 'uppercase',
-            color: 'var(--text-faint)',
-          }}
-        >
+        {/* Kicker + title — the house hierarchy: ember eyebrow over a Newsreader title. */}
+        <div className="eyebrow" style={{ color: 'var(--accent)' }}>
           {org.name}
         </div>
-        <h1 style={{ fontSize: 28, fontWeight: 750, margin: '4px 0 26px' }}>Dashboard</h1>
+        <h1
+          style={{
+            fontFamily: 'var(--serif)',
+            fontSize: 31,
+            fontWeight: 400,
+            letterSpacing: '-0.01em',
+            margin: '6px 0 26px',
+          }}
+        >
+          Dashboard
+        </h1>
 
         {/* Stat cards */}
         <div
@@ -100,25 +104,43 @@ export default async function Home() {
               key={c.label}
               style={{
                 border: '1px solid var(--border)',
-                borderRadius: 12,
+                borderRadius: 'var(--radius)',
                 padding: '16px 18px',
                 background: 'var(--bg)',
               }}
             >
               <div
                 style={{
-                  fontSize: 11,
+                  fontSize: 10.5,
                   fontWeight: 600,
-                  letterSpacing: 0.8,
+                  letterSpacing: '0.14em',
                   textTransform: 'uppercase',
-                  color: 'var(--text-faint)',
+                  color: 'var(--text-muted)',
                 }}
               >
                 {c.label}
               </div>
-              <div style={{ fontSize: 26, fontWeight: 700, marginTop: 6 }}>{c.value}</div>
+              <div
+                style={{
+                  fontFamily: 'var(--mono)',
+                  fontWeight: 500,
+                  fontSize: 28,
+                  fontVariantNumeric: 'tabular-nums',
+                  marginTop: 7,
+                }}
+              >
+                {c.value}
+              </div>
               {c.sub ? (
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{c.sub}</div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: c.tone === 'attention' ? 'var(--accent-deep)' : 'var(--moss-text)',
+                    marginTop: 3,
+                  }}
+                >
+                  {c.sub}
+                </div>
               ) : null}
             </div>
           ))}
@@ -143,7 +165,7 @@ export default async function Home() {
                 alignItems: 'center',
                 gap: 12,
                 border: '1px solid var(--border)',
-                borderRadius: 12,
+                borderRadius: 'var(--radius)',
                 padding: '14px 16px',
                 background: 'var(--bg)',
                 textDecoration: 'none',
@@ -154,8 +176,8 @@ export default async function Home() {
                 style={{
                   width: 36,
                   height: 36,
-                  borderRadius: 9,
-                  background: 'var(--bg-subtle, #f5f5f5)',
+                  borderRadius: 'var(--radius)',
+                  background: 'var(--bg-subtle)',
                   border: '1px solid var(--border)',
                   display: 'flex',
                   alignItems: 'center',
@@ -167,7 +189,16 @@ export default async function Home() {
                 {q.icon}
               </span>
               <span style={{ minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{q.title}</span>
+                <span
+                  style={{
+                    display: 'block',
+                    fontFamily: 'var(--serif)',
+                    fontSize: 16,
+                    fontWeight: 400,
+                  }}
+                >
+                  {q.title}
+                </span>
                 <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>
                   {q.desc}
                 </span>
@@ -178,7 +209,7 @@ export default async function Home() {
 
         {/* Workspace directory */}
         <SectionHeading kicker="Directory" title="Workspaces" />
-        <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
           {bases.map((b, i) => {
             const count = tables.filter((t) => t.base_id === b.id).length
             const first = tables.find((t) => t.base_id === b.id)
@@ -198,8 +229,9 @@ export default async function Home() {
                   style={{
                     fontSize: 11,
                     fontWeight: 600,
-                    color: '#1e7d4f',
-                    background: '#e4f5ec',
+                    fontFamily: 'var(--mono)',
+                    color: 'var(--moss-text)',
+                    background: 'var(--moss-soft)',
                     borderRadius: 999,
                     padding: '3px 10px',
                   }}
@@ -235,14 +267,16 @@ function SectionHeading({ kicker, title }: { kicker: string; title: string }) {
         style={{
           fontSize: 10.5,
           fontWeight: 600,
-          letterSpacing: 1,
+          letterSpacing: '0.16em',
           textTransform: 'uppercase',
           color: 'var(--text-faint)',
         }}
       >
         {kicker}
       </div>
-      <h2 style={{ fontSize: 16, fontWeight: 700, margin: '2px 0 0' }}>{title}</h2>
+      <h2 style={{ fontFamily: 'var(--serif)', fontSize: 19, fontWeight: 400, margin: '3px 0 0' }}>
+        {title}
+      </h2>
     </div>
   )
 }

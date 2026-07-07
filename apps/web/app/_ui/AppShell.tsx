@@ -108,36 +108,19 @@ export function AppShell({
           minHeight: 0,
         }}
       >
-        {/* Org mark */}
+        {/* The wordmark (brand law: lowercase italic serif, never caps, never a tile). */}
         <div
+          className="wordmark"
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 9,
-            fontWeight: 650,
-            fontSize: 14,
-            padding: '14px 14px 12px',
+            fontSize: 23,
+            padding: '16px 16px 14px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
           }}
         >
-          <span
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: 7,
-              background: 'linear-gradient(135deg, var(--accent), #4a90d9)',
-              color: '#fff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 13,
-              flexShrink: 0,
-            }}
-          >
-            ◆
-          </span>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {orgName}
-          </span>
+          {orgName.toLowerCase()}
+          {orgName.trim().toLowerCase() === 'roam' ? <sup>®</sup> : null}
         </div>
 
         {/* Sections */}

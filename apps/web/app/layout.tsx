@@ -1,8 +1,23 @@
 import type { ReactNode } from 'react'
+import { IBM_Plex_Mono, Libre_Franklin, Newsreader } from 'next/font/google'
 import { listBases, listTables } from '@retentionos/engine'
 import { getCurrentOrg } from '@/lib/org'
 import './theme.css'
 import { AppShell } from './_ui/AppShell'
+
+// The three roam faces (brand book): Newsreader names things, Franklin does the work,
+// Plex Mono counts. Self-hosted at build time by next/font; theme.css consumes the vars.
+const newsreader = Newsreader({
+  subsets: ['latin'],
+  style: ['normal', 'italic'],
+  variable: '--font-newsreader',
+})
+const franklin = Libre_Franklin({ subsets: ['latin'], variable: '--font-franklin' })
+const plexMono = IBM_Plex_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-plex-mono',
+})
 
 export const metadata = {
   title: 'RetentionOS',
@@ -24,7 +39,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   }
 
   return (
-    <html lang="en">
+    <html lang="en" className={`${newsreader.variable} ${franklin.variable} ${plexMono.variable}`}>
       <body>
         <AppShell bases={bases} tables={tables} orgName={orgName}>
           {children}

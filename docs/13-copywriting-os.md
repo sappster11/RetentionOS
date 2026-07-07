@@ -49,6 +49,11 @@ Left-side nav dashboard: workspaces (bases) as nav sections, tables as items ben
 them, slim top bar, content area = the existing grid/kanban/detail machinery (which is
 the point: rows, columns, filters, views, sorting all stay). Retention + future
 sections (Studio dashboards) become nav destinations. Light, modern, unbranded.
+**Superseded 2026-07-07: the app now wears the roam brand** — paper-world tokens
+(theme.css), Newsreader/Libre Franklin/IBM Plex Mono via next/font, the italic
+wordmark, moss/ember color roles, dark plates on login + client portal. Hexes marked
+`~` in theme.css are approximations pending reconciliation against the canonical
+roam-site/app/globals.css.
 
 ## Open items (defaults chosen, revisit any time)
 - Prompt-doc question SETS (the template each cycle instantiates): v1 keeps a canonical

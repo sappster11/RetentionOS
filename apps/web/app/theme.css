@@ -1,20 +1,45 @@
-/* RetentionOS — light-mode, Airtable-esque design tokens + base styles.
-   Neutral grays, white background, subtle borders, dense small text, system fonts. */
+/* RetentionOS — roam paper-world tokens + base styles.
+   The brand laws (docs: roam branding handoff + brand book): light mode is "paper" —
+   warm paper ground, warm ink text, Newsreader for titles, Libre Franklin for UI,
+   IBM Plex Mono for numbers. Moss carries evidence, ember carries action. Plates
+   (login, portal header) stay dark via the [data-plate] scoped overrides below.
+   Hexes marked ~ are close approximations — reconcile against the canonical
+   roam-site/app/globals.css before changing them independently. */
 :root {
-  --bg: #ffffff;
-  --bg-subtle: #f7f7f8;
-  --bg-hover: #f2f2f3;
-  --bg-sidebar: #fbfbfc;
-  --bg-tabs: #f4f4f6;
-  --border: #e5e6e8;
-  --border-strong: #d4d5d8;
-  --text: #1a1a1c;
-  --text-muted: #6b6b70;
-  --text-faint: #9a9aa0;
-  --accent: #2b6cb0;
-  --accent-soft: #e8f0f9;
-  --selected: #e4effb;
-  --danger: #c53030;
+  /* Paper ground (~) */
+  --bg: #fbf8f0;
+  --bg-subtle: #f4efe2;
+  --bg-hover: #f0e9d9;
+  --bg-sidebar: #f1ecde;
+  --bg-tabs: #f2ecdd;
+  --border: #e5ddc9;
+  --border-strong: #d3c9ae;
+
+  /* Warm ink (~) */
+  --text: #1c1915;
+  --text-muted: #6e675c;
+  --text-faint: #98917f;
+
+  /* Ember — the voice in daylight: actions, active nav, focus (~) */
+  --accent: #c25a2b;
+  --accent-deep: #a84b20;
+  --accent-soft: #f6e4d7;
+  --selected: #f3e2d0;
+
+  /* Moss — evidence: the line that says why a number matters (chart green is
+     CVD-locked at #7C9A38; do not change without re-validating) */
+  --moss: #7c9a38;
+  --moss-text: #5c7526;
+  --moss-soft: #ebeed8;
+
+  --danger: #b3362b;
+
+  /* The ink plate (~) — matches the site's dark world */
+  --plate: #131210;
+  --plate-ink: #f2eee1;
+  --plate-muted: rgba(242, 238, 225, 0.55);
+  --plate-line: rgba(242, 238, 225, 0.16);
+
   --radius: 6px;
   --views-w: 260px;
   --chat-w: 320px;
@@ -24,9 +49,30 @@
   --row-h: 32px;
   --rownum-w: 56px;
   --col-w: 200px;
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
-    "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+
+  /* Type roles: Franklin works, Newsreader names, Plex Mono counts. */
+  --font: var(--font-franklin), 'Libre Franklin', -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, sans-serif;
+  --serif: var(--font-newsreader), 'Newsreader', Georgia, serif;
+  --mono: var(--font-plex-mono), 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
   --fs: 13px;
+}
+
+/* Plates stay dark in both worlds (the site's law). Scope a surface with data-plate
+   and every token-driven component on it — inputs, buttons, hairlines — goes ink. */
+[data-plate] {
+  --bg: var(--plate);
+  --bg-subtle: #1b1916;
+  --bg-hover: #23211d;
+  --border: var(--plate-line);
+  --border-strong: rgba(242, 238, 225, 0.3);
+  --text: var(--plate-ink);
+  --text-muted: var(--plate-muted);
+  --text-faint: rgba(242, 238, 225, 0.38);
+  --accent-soft: rgba(194, 90, 43, 0.18);
+  --selected: rgba(194, 90, 43, 0.22);
+  background: var(--plate);
+  color: var(--text);
 }
 
 * {
@@ -48,6 +94,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+::selection {
+  background: var(--accent-soft);
+}
+
 button {
   font-family: inherit;
   font-size: inherit;
@@ -64,4 +114,35 @@ textarea {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The wordmark law: lowercase italic Newsreader 500, never caps, never roman. */
+.wordmark {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1;
+}
+.wordmark sup {
+  font-size: 0.42em;
+  font-style: normal;
+  letter-spacing: 0;
+  vertical-align: super;
+  color: var(--text-muted);
+  margin-left: 1px;
+}
+
+/* Eyebrow — the house kicker: small caps-tracked Franklin. */
+.eyebrow {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }

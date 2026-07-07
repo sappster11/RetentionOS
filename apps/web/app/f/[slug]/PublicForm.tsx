@@ -85,10 +85,18 @@ export function PublicForm({
               boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
             }}
           >
-            <div style={{ fontSize: 32, marginBottom: 12 }} aria-hidden>
+            <div style={{ fontSize: 32, marginBottom: 12, color: 'var(--moss-text)' }} aria-hidden>
               ✓
             </div>
-            <h1 style={{ fontSize: 18, fontWeight: 650, margin: 0, color: 'var(--text)' }}>
+            <h1
+              style={{
+                fontFamily: 'var(--serif)',
+                fontSize: 21,
+                fontWeight: 400,
+                margin: 0,
+                color: 'var(--text)',
+              }}
+            >
               Response recorded
             </h1>
             <p style={{ color: 'var(--text-muted)', fontSize: 13.5, margin: '8px 0 20px' }}>
@@ -139,6 +147,10 @@ export function PublicForm({
             />
           </>
         )}
+        <div style={{ marginTop: 22, textAlign: 'center', fontSize: 11.5, color: 'var(--text-faint)' }}>
+          Powered by{' '}
+          <span className="wordmark" style={{ fontSize: 13, color: 'var(--text-muted)' }}>roam</span>
+        </div>
       </div>
     </main>
   )
