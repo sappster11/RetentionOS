@@ -107,6 +107,29 @@ export function RecordDetailPanel({
           {/* Lead → Client conversion (Leads rows in Closed (Won) only) */}
           <ConvertLeadSection table={table} fields={fields} record={record} />
 
+          {/* Retention analytics (Clients rows only) */}
+          {table.slug === 'clients' ? (
+            <div style={{ padding: '10px 16px 2px' }}>
+              <a
+                href={`/retention/${record.id}`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: 'var(--accent, #2b6cb0)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  padding: '6px 12px',
+                  textDecoration: 'none',
+                }}
+              >
+                📈 Retention analytics →
+              </a>
+            </div>
+          ) : null}
+
           {/* Fields */}
           <div style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
             {fields.map((f) => {

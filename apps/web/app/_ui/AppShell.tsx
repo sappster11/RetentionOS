@@ -73,8 +73,14 @@ export function AppShell({
     return tables.filter((t) => t.base_id === activeKey)
   }, [tables, ungrouped, activeKey])
 
-  // /login, /auth, and public /f/ form pages render bare (no shell chrome).
-  if (pathname.startsWith('/login') || pathname.startsWith('/auth') || pathname.startsWith('/f/')) {
+  // /login, /auth, public /f/ form pages, and the /retention/ analytics section render
+  // bare (no shell chrome — retention has its own back link to the client record).
+  if (
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/auth') ||
+    pathname.startsWith('/f/') ||
+    pathname.startsWith('/retention/')
+  ) {
     return <>{children}</>
   }
 
