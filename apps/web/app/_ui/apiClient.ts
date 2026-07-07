@@ -88,7 +88,11 @@ export const api = {
     // <fieldId>:<op>[:<value>]. Repeatable params.
     for (const s of params?.sorts ?? []) q.append('sort', `${s.fieldId}:${s.direction}`)
     for (const f of params?.filters ?? []) {
-      const noValue = f.op === 'is_empty' || f.op === 'is_not_empty'
+      const noValue =
+        f.op === 'is_empty' ||
+        f.op === 'is_not_empty' ||
+        f.op === 'on_or_before_today' ||
+        f.op === 'on_or_after_today'
       q.append('filter', noValue ? `${f.fieldId}:${f.op}` : `${f.fieldId}:${f.op}:${String(f.value ?? '')}`)
     }
     const qs = q.toString()

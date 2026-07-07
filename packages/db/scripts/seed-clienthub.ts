@@ -17,17 +17,19 @@
 // writes (two-phase: validate, then create), so a conflict never leaves a half-seeded
 // table behind. Built entirely through @retentionos/engine.
 //
-// Known engine gaps this seed works around (docs/10 "engine work" + verification notes):
-//  - "Active PM"/"Active Strategist" want the ASSIGNEE'S NAME, which lives two hops away
-//    (Clients → Assignments → Team Members). Lookup/rollup targets must be CONCRETE
-//    fields on the DIRECTLY linked table (no chaining), so the natural construction is
-//    rejected by the engine. The seed attempts it anyway (so it self-heals if depth-2
-//    lookup chaining ever lands) and falls back to filtered COUNT rollups:
-//    "Active Team Count" + "Active PM Count" + "Active Strategist Count". The gap is
-//    reported at run time — needs depth-2 lookup chaining, NOT denormalized text fields.
-//  - No relative-date view filters: "Prompt Doc Cycles · Current Month" cannot be
-//    expressed (a literal Month/Year filter would freeze at seed time and go stale
-//    every month) — seeded as a plain grid; the month slice lives in n8n's API query.
+// Engine-gap status (docs/10 "engine work" + verification notes):
+//  - CLOSED: depth-2 lookup chaining. "Active PM"/"Active Strategist" want the ASSIGNEE'S
+//    NAME, which lives two hops away (Clients → Assignments → Team Members). The seed
+//    builds the natural construction: Assignments carries a helper lookup 'Team Member
+//    Name' (→ Team Members.Name) and Clients aggregate THROUGH it with filtered concat
+//    rollups (End is_empty ∧ Role eq). Deployments seeded before chaining landed
+//    self-heal on rerun — the helper lookup + name rollups are added alongside the old
+//    fallback COUNT rollups ("Active Team Count" etc.), which stay (user-visible fields
+//    are never deleted).
+//  - Still open: "Prompt Doc Cycles · Current Month" needs a THIS-MONTH filter; the
+//    relative-date ops (on_or_before_today / on_or_after_today) don't express a month
+//    slice, and a literal Month/Year filter would freeze at seed time — seeded as a
+//    plain grid; the month slice lives in n8n's API query.
 
 import { getDefaultOrganization } from '../src/index'
 import { queryOne } from '../src/pool'
@@ -317,31 +319,32 @@ const MONTH_CHOICES: Array<[string, string, string]> = [
 ]
 
 /**
- * "Active PM" / "Active Strategist" the way doc 10 WANTS them: a filtered lookup over
- * Assignments (End empty ∧ Role=<role>) pulling the assignee's NAME. That name lives on
- * Team Members — one link further than the engine's lookup can reach (targets must be
- * concrete fields on the DIRECTLY linked table). We attempt the natural construction so
- * the seed self-heals if depth-2 chaining ever lands; on the expected rejection we report
- * the gap and the caller seeds the count-rollup fallbacks instead.
- * Returns true if the lookup exists (pre-existing or created), false on engine rejection.
+ * "Active PM" / "Active Strategist" the way doc 10 WANTS them: the assignee's NAME,
+ * filtered over Assignments (End empty ∧ Role=<role>). The name lives on Team Members —
+ * one hop past the Assignments link — so this is a depth-2 chain: Assignments carries
+ * the helper lookup 'Team Member Name' (→ Team Members.Name) and Clients aggregate
+ * THROUGH it with a filtered concat rollup targeting that lookup. Deployments seeded
+ * before chaining landed self-heal here on rerun (the old fallback COUNT rollups stay —
+ * user-visible fields are never deleted).
+ * Returns true if the rollup exists (pre-existing or created), false on engine rejection.
  */
-async function attemptActivePersonLookup(
+async function attemptActivePersonRollup(
   orgId: string,
   clientsTableId: string,
   name: string,
   assignmentsLinkFieldId: string,
-  teamMemberNameFieldId: string,
+  teamMemberNameLookupId: string,
   filters: LinkFilterCondition[],
 ): Promise<boolean> {
   if (isPendingId(clientsTableId)) return false
   const fields = await listFields(orgId, clientsTableId)
   const existing = fields.find((f) => f.name === name)
   if (existing) {
-    // Someone (or a future engine) already materialized it — require the expected type.
-    if (phase === 'validate' && existing.type !== 'lookup') {
+    // Someone already materialized it — require the expected type.
+    if (phase === 'validate' && existing.type !== 'rollup') {
       conflicts.push(
         `Seed conflict: field '${name}' on table 'Clients' exists with type ` +
-          `${existing.type}, expected lookup — resolve manually`,
+          `${existing.type}, expected rollup — resolve manually`,
       )
     }
     return true
@@ -353,25 +356,27 @@ async function attemptActivePersonLookup(
       clientsTableId,
       {
         name,
-        type: 'lookup',
+        type: 'rollup',
         options: {
           recordLinkFieldId: assignmentsLinkFieldId,
-          targetFieldId: teamMemberNameFieldId, // on Team Members — two hops away
+          targetFieldId: teamMemberNameLookupId, // the depth-2 hop: a lookup on Assignments
+          aggregate: 'concat',
           filters,
         },
       },
       SEED_ACTOR,
     )
     fieldsCreated += 1
-    notes.push(`'${name}' seeded as a filtered lookup — depth-2 chaining is supported now.`)
+    notes.push(
+      `'${name}' seeded as a filtered concat rollup through Assignments' 'Team Member ` +
+        `Name' lookup (depth-2 chaining).`,
+    )
     return true
   } catch (err) {
     const message = (err as EngineError).message ?? String(err)
     notes.push(
-      `'${name}' cannot be built yet — the assignee's name lives across a second link ` +
-        `(Assignments → Team Members) and lookup targets must be concrete fields on the ` +
-        `directly linked table (engine said: "${message}"). Needs depth-2 lookup chaining; ` +
-        `seeded filtered COUNT rollups instead.`,
+      `'${name}' could not be built — the engine rejected the depth-2 construction ` +
+        `(engine said: "${message}"). Seeded filtered COUNT rollups instead.`,
     )
     return false
   }
@@ -577,7 +582,7 @@ async function seed(orgId: string) {
       )
     }
   }
-  await ensureLink(orgId, assignments.id, 'Team Member', teamMembers.id)
+  const asgTeamMemberLink = await ensureLink(orgId, assignments.id, 'Team Member', teamMembers.id)
   const { field: assignRoleF } = await ensureField(orgId, assignments.id, {
     name: 'Role',
     type: 'single_select',
@@ -599,6 +604,14 @@ async function seed(orgId: string) {
       ['employee_left', 'Employee Left', 'orange'],
       ['other', 'Other', 'gray'],
     ),
+  })
+  // The depth-2 helper: the assignee's name pulled onto the assignment itself, so Clients'
+  // "Active PM"/"Active Strategist" rollups can chain THROUGH it (Clients → Assignments →
+  // Team Members.Name). Added on rerun to pre-chaining deployments (self-heal).
+  const { field: tmNameLookupF } = await ensureField(orgId, assignments.id, {
+    name: 'Team Member Name',
+    type: 'lookup',
+    options: { recordLinkFieldId: asgTeamMemberLink.id, targetFieldId: tmNameF.id },
   })
 
   // --- Engagements -------------------------------------------------------------------------
@@ -742,13 +755,15 @@ async function seed(orgId: string) {
     { fieldId: assignRoleF.id, op: 'eq', value: 'strategist' },
   ]
 
-  const pmOk = await attemptActivePersonLookup(
-    orgId, clients.id, 'Active PM', clientsAssignmentsLinkId, tmNameF.id, pmFilters,
+  const pmOk = await attemptActivePersonRollup(
+    orgId, clients.id, 'Active PM', clientsAssignmentsLinkId, tmNameLookupF.id, pmFilters,
   )
-  const strategistOk = await attemptActivePersonLookup(
-    orgId, clients.id, 'Active Strategist', clientsAssignmentsLinkId, tmNameF.id, strategistFilters,
+  const strategistOk = await attemptActivePersonRollup(
+    orgId, clients.id, 'Active Strategist', clientsAssignmentsLinkId, tmNameLookupF.id, strategistFilters,
   )
-  // Fallback trio (also validated by name/type on reruns even before the create phase).
+  // Pre-chaining fallback trio: still validated by name/type on every rerun (existing
+  // deployments keep them — never deleted), and still the safety net if the depth-2
+  // construction is ever rejected.
   if (!pmOk || !strategistOk || phase === 'validate') {
     await ensureField(orgId, clients.id, {
       name: 'Active Team Count',

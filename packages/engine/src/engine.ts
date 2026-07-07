@@ -9,7 +9,13 @@ import { getPool, query, queryOne, slugify } from '@retentionos/db'
 import { coerceValue, coerceValues, isFieldType, validateFieldOptions } from './fieldTypes'
 import { parseFormula, referencedFieldIds } from './formula'
 import { enrichRecords, syncLinksForField } from './links'
-import { EngineError, FormSubmissionError, VIEW_TYPES, isComputedType } from './types'
+import {
+  EngineError,
+  FormSubmissionError,
+  VIEW_TYPES,
+  isComputedType,
+  isRelativeDateFilterOp,
+} from './types'
 import type {
   Actor,
   EngineBase,
@@ -398,11 +404,14 @@ async function insertField(
  * Enforce the Phase B field-creation restrictions that need a DB round-trip:
  *  - linked_record.linkedTableId must be a real table in this org.
  *  - lookup/rollup.recordLinkFieldId must be a linked_record field ON THIS table.
- *  - lookup/rollup.targetFieldId must be a CONCRETE (non-computed) field on the linked table
- *    (no lookup-of-lookup chains). Count rollups may omit targetFieldId.
+ *  - lookup/rollup.targetFieldId must be either a CONCRETE (non-computed) field on the
+ *    linked table, or — depth-2 chaining — a LOOKUP on the linked table whose own
+ *    targetFieldId resolves to a concrete field one hop further. Exactly one extra hop:
+ *    a lookup-of-lookup-of-lookup, or a rollup/formula target, is rejected. Count rollups
+ *    may omit targetFieldId.
  *  - lookup/rollup.filters[].fieldId must each be a CONCRETE (non-computed, non-linked,
  *    non-multi_select) field on the linked table (their conditions evaluate against
- *    linked-row values).
+ *    linked-row values); relative-date ops additionally require a date/datetime field.
  */
 async function assertRelationOptions(
   orgId: string,
@@ -432,8 +441,40 @@ async function assertRelationOptions(
       if (!targetField) {
         throw new EngineError('targetFieldId is not a field on the linked table.', 'bad_options')
       }
-      if (isComputedType(targetField.type)) {
-        throw new EngineError('targetFieldId must be a concrete (non-computed) field — no lookup chains.', 'bad_options')
+      if (targetField.type === 'lookup') {
+        // Depth-2 chaining: the target may be a lookup ON the linked table, but only when
+        // that lookup itself lands on a CONCRETE field one hop further (never deeper).
+        const hopLinkField = await queryOne<EngineField>(
+          `select ${FIELD_COLS} from public.engine_fields where table_id = $1 and id = $2`,
+          [targetTableId, targetField.options.recordLinkFieldId],
+        )
+        if (!hopLinkField || hopLinkField.type !== 'linked_record' || !targetField.options.targetFieldId) {
+          throw new EngineError(
+            `targetFieldId chains through the lookup "${targetField.name}", which is misconfigured (its link or target is gone).`,
+            'bad_options',
+          )
+        }
+        const hopTarget = await queryOne<EngineField>(
+          `select ${FIELD_COLS} from public.engine_fields where table_id = $1 and id = $2`,
+          [hopLinkField.options.linkedTableId, targetField.options.targetFieldId],
+        )
+        if (!hopTarget) {
+          throw new EngineError(
+            `targetFieldId chains through the lookup "${targetField.name}", whose own target field no longer exists.`,
+            'bad_options',
+          )
+        }
+        if (isComputedType(hopTarget.type)) {
+          throw new EngineError(
+            `targetFieldId may chain through at most ONE lookup: "${targetField.name}" targets the computed field "${hopTarget.name}" (${hopTarget.type}) — the chained lookup must land on a concrete field.`,
+            'bad_options',
+          )
+        }
+      } else if (isComputedType(targetField.type)) {
+        throw new EngineError(
+          `targetFieldId must be a concrete field, or a lookup on the linked table (depth-2) — "${targetField.name}" is a ${targetField.type}.`,
+          'bad_options',
+        )
       }
     }
     if (options.filters && options.filters.length > 0) {
@@ -460,6 +501,12 @@ async function assertRelationOptions(
         if (ff.type === 'multi_select') {
           throw new EngineError(
             `Filter field "${ff.name}" is a multi_select — multi_select fields cannot be used in lookup/rollup filters yet.`,
+            'bad_options',
+          )
+        }
+        if (isRelativeDateFilterOp(c.op) && ff.type !== 'date' && ff.type !== 'datetime') {
+          throw new EngineError(
+            `Filter op "${c.op}" only applies to date/datetime fields; "${ff.name}" is ${ff.type}.`,
             'bad_options',
           )
         }
@@ -1034,6 +1081,28 @@ export async function queryRecords(
       case 'lte':
         where.push(`${lhs} <= ${castRhs(params, f.value, numeric)}`)
         break
+      case 'on_or_before_today':
+      case 'on_or_after_today': {
+        // Relative-date ops: valueless, date/datetime only, evaluated at QUERY time.
+        // date fields compare by calendar date, datetime fields by instant vs now().
+        if (field.type !== 'date' && field.type !== 'datetime') {
+          throw new EngineError(
+            `Filter op "${f.op}" only applies to date/datetime fields; "${field.name}" is ${field.type}.`,
+            'bad_filter',
+          )
+        }
+        if (f.value !== undefined) {
+          throw new EngineError(`Filter op "${f.op}" does not take a value.`, 'bad_filter')
+        }
+        const cmp = f.op === 'on_or_before_today' ? '<=' : '>='
+        // nullif guards the cast: an absent/empty stored value compares as null → excluded.
+        where.push(
+          field.type === 'date'
+            ? `(nullif(${path}, ''))::date ${cmp} current_date`
+            : `(nullif(${path}, ''))::timestamptz ${cmp} now()`,
+        )
+        break
+      }
       default:
         throw new EngineError(`Unsupported filter op "${String(f.op)}".`, 'bad_filter')
     }

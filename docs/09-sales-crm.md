@@ -84,9 +84,10 @@ Lead (auto-inverse link).
 ## Views (seeded)
 - **Leads · Pipeline** — kanban grouped by Stage.
 - **Leads · All Leads** — grid, sorted Came In desc.
-- **Leads · Follow-ups** — grid filtered: Stage not terminal, Next Action Due ≤ today,
-  sorted by due date. (If the filter grammar lacks relative dates, seed the view and
-  note the gap — relative-date filters become an engine fast-follow.)
+- **Leads · Follow-ups** — grid filtered: Stage not terminal, Next Action Due ≤ today
+  (the `on_or_before_today` relative-date op, evaluated at read time), sorted by due
+  date. (Gap closed: the op landed with the client-hub engine work; deployments seeded
+  before it gain the condition on reseed.)
 - **Leads · Won / Lost review** — grid filtered to terminal stages.
 - Grid views for Contacts, Activities, Audit Handoffs, Agreements.
 
@@ -102,7 +103,8 @@ merged into Source), the two On-Hold stages, all 9 manual timestamp fields.
 2. **formula field type, minimal v1** — arithmetic (+ − × ÷) over same-record
    number/currency/percent fields, computed at read like lookup/rollup, cycle-checked,
    read-only. No functions/strings/dates in v1.
-3. Noted, not blocking: conditional-required (Lost Reason), relative-date view filters.
+3. Noted, not blocking: conditional-required (Lost Reason). Relative-date view filters
+   SHIPPED (`on_or_before_today` / `on_or_after_today` — see docs/10 engine work).
 
 ## Sequenced delivery
 1. Seed tables + views (after Phase B review lands + engine additions) — `packages/db/scripts/seed-salescrm.ts`, idempotent, built through the service layer.

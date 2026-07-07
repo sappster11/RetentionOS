@@ -50,8 +50,10 @@ GET /api/v1/tables/{tableId}/records?limit=&offset=&sort=&filter=
 Query-param grammar (all repeatable):
 
 - `filter=<fieldId>:<op>:<value>` — ops: `eq`, `neq`, `contains`, `gt`, `gte`, `lt`,
-  `lte`, `is_empty`, `is_not_empty`. The empty-ops take no `:<value>` part. Multiple
-  filters AND together.
+  `lte`, `is_empty`, `is_not_empty`, `on_or_before_today`, `on_or_after_today`. The
+  empty-ops and the relative-date ops take no `:<value>` part (the relative-date ops
+  are date/datetime-only and evaluate against the query moment — never stale).
+  Multiple filters AND together.
 - `sort=<fieldId>:asc` or `<fieldId>:desc`
 - `limit` / `offset` — non-negative integers.
 
