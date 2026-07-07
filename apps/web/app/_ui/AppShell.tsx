@@ -141,6 +141,26 @@ export function AppShell({
 
         {/* Sections */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '2px 8px 8px' }}>
+          <Link
+            href="/"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '5px 8px',
+              margin: '0 0 10px',
+              fontSize: 13,
+              fontWeight: pathname === '/' ? 600 : 400,
+              color: pathname === '/' ? 'var(--accent)' : 'var(--text-muted)',
+              background:
+                pathname === '/' ? 'color-mix(in srgb, var(--accent) 9%, transparent)' : 'transparent',
+              borderRadius: 6,
+              textDecoration: 'none',
+            }}
+          >
+            <span style={{ fontSize: 13 }}>⌂</span>
+            <span>Dashboard</span>
+          </Link>
           {sections.length === 0 ? (
             <div style={{ fontSize: 12.5, color: 'var(--text-faint)', padding: '8px 8px' }}>
               No workspaces yet — create one below.
