@@ -17,8 +17,9 @@
 // same service layer the UI, API, and agents use), so no SQL and no migrations.
 //
 // Known engine gaps this seed works around (docs/09 "noted, not blocking"):
-//  - No relative-date filters: the Follow-ups view carries only the stage filters; the
-//    "Next Action Due <= today" half becomes an engine fast-follow.
+//  - CLOSED: relative-date filters. Follow-ups now carries the "Next Action Due <= today"
+//    half as an on_or_before_today condition (evaluated at read time, never stale);
+//    deployments seeded before the op existed gain the condition on rerun.
 //  - Computed fields (created_time, autonumber) are not sortable/filterable in
 //    queryRecords: All Leads is seeded without a sort (default order is created_at asc).
 //  - No "is any of" filter op: Won / Lost review expresses "terminal stages only" as
@@ -39,6 +40,7 @@ import {
   listViews,
   updateField,
   updateTable,
+  updateView,
 } from '@retentionos/engine'
 import type {
   Actor,
@@ -46,6 +48,7 @@ import type {
   EngineField,
   EngineTable,
   FieldOptions,
+  FilterCondition,
   ViewConfig,
   ViewType,
 } from '@retentionos/engine'
@@ -234,6 +237,33 @@ async function ensureView(
   if (phase === 'validate') return
   viewsCreated += 1
   await createView(orgId, tableId, { name, type, config })
+}
+
+/**
+ * Self-heal an EXISTING view's filters with one extra condition (matched by fieldId+op,
+ * so reruns never duplicate it). Deployments seeded before the relative-date ops existed
+ * gain the condition here; fresh seeds already carry it in ensureView's config, and a
+ * view that doesn't exist yet is left to ensureView. Create phase only — the validate
+ * pass makes zero writes.
+ */
+async function ensureViewFilterCondition(
+  orgId: string,
+  tableId: string,
+  viewName: string,
+  condition: FilterCondition,
+): Promise<void> {
+  if (phase !== 'create' || isPendingId(tableId) || isPendingId(condition.fieldId)) return
+  const views = await listViews(orgId, tableId)
+  const existing = views.find((v) => v.name === viewName)
+  if (!existing || existing.type !== 'grid') return
+  const filters = existing.config.filters ?? []
+  if (filters.some((f) => f.fieldId === condition.fieldId && f.op === condition.op)) return
+  await updateView(orgId, tableId, existing.id, {
+    config: { ...existing.config, filters: [...filters, condition] },
+  })
+  console.log(
+    `note: view '${viewName}' gained the ${condition.op} condition on rerun (self-heal).`,
+  )
 }
 
 /** Shorthand for select options: [id, name, color] triples -> {choices}. */
@@ -524,12 +554,18 @@ async function seed(orgId: string) {
   // All Leads: docs/09 wants "sorted Came In desc", but computed fields (created_time,
   // autonumber) are rejected by queryRecords sorts — seeded unsorted (created_at asc default).
   await ensureView(orgId, leads.id, 'All Leads', 'grid')
-  // Follow-ups: stage-not-terminal only; the "Next Action Due <= today" half needs
-  // relative-date filters (engine fast-follow per docs/09).
+  // Follow-ups: stage-not-terminal ∧ Next Action Due on or before today (docs/09's
+  // "due <= today" half — a relative-date op evaluated at read time, never frozen).
+  const dueCondition: FilterCondition = { fieldId: nextDueF.id, op: 'on_or_before_today' }
   await ensureView(orgId, leads.id, 'Follow-ups', 'grid', {
-    filters: terminalStages.map((id) => ({ fieldId: stageF.id, op: 'neq' as const, value: id })),
+    filters: [
+      ...terminalStages.map((id) => ({ fieldId: stageF.id, op: 'neq' as const, value: id })),
+      dueCondition,
+    ],
     sorts: [{ fieldId: nextDueF.id, direction: 'asc' }],
   })
+  // Pre-relative-date deployments: append the due condition to the EXISTING view once.
+  await ensureViewFilterCondition(orgId, leads.id, 'Follow-ups', dueCondition)
   // Won / Lost review: no "is any of" op, so terminal-only = has a stage AND not any active one.
   await ensureView(orgId, leads.id, 'Won / Lost review', 'grid', {
     filters: [

@@ -24,7 +24,7 @@ view that exists only because Airtable makes cross-table reads hard for automati
 | Identity | **Client** (text, primary) · Domain (url) · Logo (attachment) · Industry (single_select, reference taxonomy) · Services (multi_select) · Status (single_select: Onboarding / Active / Paused / Churned — history free via revisions) |
 | Comms & automation (absorbs the Slack Channels + Processes tables and approval plumbing) | Internal Slack Channel ID (text) · External Slack Channel ID (text) · Approval Channel (single_select: Slack / Email) · Approval Link Mode (single_select: Figma Only / Asana Only / Both) · Asana Tracker GID (text) · Answer Prompts (checkbox — gates the monthly questionnaire) |
 | Links | Contacts · Engagements · Client Docs · Assignments · Prompt Doc Cycles · Discount Codes · Tech Stack (link to catalog) |
-| Derived | Active PM · Active Strategist (filtered count rollups in v1; name rollups pending depth-2 lookup chaining — the seed self-heals) · Client Since (rollup MIN over Engagements Start) · Open Engagements (filtered count) |
+| Derived | Active PM · Active Strategist (NAME rollups — filtered concat through Assignments' "Team Member Name" lookup, depth-2 chaining; pre-chaining deployments keep their fallback count rollups and self-heal the name rollups on reseed) · Client Since (rollup MIN over Engagements Start) · Open Engagements (filtered count) |
 
 ### 2. Contacts — **extend the existing shared table from doc 09** (do not create a second one)
 Add: Client (linked_record → Clients), Slack ID (text), Approver (checkbox — load-bearing
@@ -92,9 +92,18 @@ fields, assignment/tech-stack dead fields.
 1. **Filtered lookups/rollups** — options gain an optional `filters` clause over the
    linked table's concrete fields, reusing the view-filter grammar (is_empty /
    is_not_empty / eq / neq at minimum). Replaces the reference's 4-formula chain.
-2. Noted, not blocking: rollup MIN/MAX over date fields (ISO strings order
-   lexicographically ≡ chronologically — verify and test, no new type needed);
-   relative-date view filters (already flagged in doc 09).
+   SHIPPED.
+2. **Depth-2 lookup chaining** — a lookup/rollup `targetFieldId` may be a LOOKUP on the
+   directly-linked table whose own target resolves to a concrete field (exactly one
+   extra hop, both hops batched — no N+1; deeper chains and rollup/formula targets
+   rejected). This is what makes "Active PM" show the assignee's NAME
+   (Clients → Assignments → Team Members.Name). SHIPPED.
+3. **Relative-date filter ops** — `on_or_before_today` / `on_or_after_today` in both the
+   view-filter grammar and lookup/rollup filters (valueless, date/datetime only,
+   evaluated at read time). Flagged in doc 09; SHIPPED. A this-month op (for
+   Prompt Doc Cycles · Current Month) is still open.
+4. Noted, not blocking: rollup MIN/MAX over date fields (ISO strings order
+   lexicographically ≡ chronologically — verified and tested, no new type needed).
 
 ## Out of scope
 Approvals machinery (needs the monthly-delivery-loop discovery that's still open),
