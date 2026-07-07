@@ -16,6 +16,7 @@
     "seed:salescrm": "tsx scripts/seed-salescrm.ts",
     "seed:clienthub": "tsx scripts/seed-clienthub.ts",
     "rename:org": "tsx scripts/rename-org.ts",
+    "seed:contentstudio": "tsx scripts/seed-contentstudio.ts",
     "seed:commerce": "tsx scripts/seed-commerce.ts",
     "seed:pm": "tsx scripts/seed-pm.ts",
     "seed:content": "tsx scripts/seed-content.ts",
