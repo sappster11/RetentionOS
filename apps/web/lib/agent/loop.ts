@@ -10,6 +10,7 @@ import { toAnthropicTool } from './toolSchema'
 // --- events streamed to the UI -----------------------------------------------------
 
 export type AgentStreamEvent =
+  | { type: 'conversation'; conversationId: string } // emitted by the ROUTE before the loop
   | { type: 'text'; text: string } // assistant text delta
   | { type: 'tool'; tool: string; summary: string; isError?: boolean } // action chip
   | { type: 'error'; message: string }
