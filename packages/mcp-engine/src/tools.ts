@@ -12,6 +12,7 @@ import { getDefaultOrganization } from '@retentionos/db'
 import {
   EngineError,
   FIELD_TYPES,
+  convertLead as engineConvertLead,
   createBase as engineCreateBase,
   createField as engineCreateField,
   createRecord as engineCreateRecord,
@@ -763,6 +764,31 @@ export const tools: EngineToolDef[] = [
       const orgId = await ctx.resolveOrg(organization_id)
       const tableId = await resolveTableId(orgId, table)
       return engineDeleteRecords(orgId, tableId, record_ids, ctx.actor)
+    },
+  }),
+
+  defineTool({
+    name: 'convert_lead',
+    title: 'Convert lead to client',
+    description:
+      'Convert a Closed (Won) lead (Sales CRM "Leads" table) into a Client Hub client — ' +
+      'use this instead of hand-copying fields whenever a deal closes and the user wants the ' +
+      'company set up as a client. In one call it: creates the Clients record (Client name ← ' +
+      'Company, Domain ← Domain, Status "Onboarding", Services mapped from Interested ' +
+      'Services by choice name), re-links the lead\'s Contacts to the new client (they keep ' +
+      'their Lead link), creates one Engagement per service on the linked Agreement (Start ← ' +
+      'Start Date, Monthly Fee ← Email Fee or Paid Fee Base per service, minimum term/notes ' +
+      '→ Engagement Notes), and logs a "Converted to client" Note activity on the lead. ' +
+      'Idempotent: if a client with the same name already exists (case-insensitive) it is ' +
+      'reused and nothing is duplicated. Rejects leads whose Stage is not "Closed (Won)" — ' +
+      'move the Stage first. The result lists what was created and every skip with a reason.',
+    inputSchema: {
+      record_id: z.string().uuid().describe('The lead record id (a row in the Leads table).'),
+      organization_id: organizationIdField,
+    },
+    handler: async ({ record_id, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
+      return { result: await engineConvertLead(orgId, record_id, ctx.actor) }
     },
   }),
 
