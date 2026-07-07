@@ -1,15 +1,15 @@
 'use client'
 
-// The outer app chrome: a slim top header (app mark + workspace name, chat toggle), the
-// BASE bar (Airtable-style workspaces — Sales CRM / Client Hub / …), the table-TABS strip
-// scoped to the active base, then the active table's page as children, then the collapsible
-// chat panel. All chrome is light: white/near-white with 1px neutral borders.
+// The outer app chrome — clean left-nav dashboard (no Airtable-style tab strips):
+// a fixed left sidebar (org mark, then one nav section per base with its tables as
+// items, a Workspace section for ungrouped tables, + new-table/new-workspace actions),
+// a slim top bar (breadcrumb + chat toggle), and the content area. The grid/kanban/
+// filters/views machinery all lives in the table pages themselves and is unchanged.
 //
-// Base selection: navigating to a table activates its base (URL stays /t/[tableSlug] —
-// tables are the routing unit, bases are grouping). Clicking a base chip switches the tab
-// strip and jumps to that base's first table when it has one. Ungrouped tables (base_id
-// null) live under a default "Workspace" chip that only renders when any exist.
-import { useEffect, useMemo, useState } from 'react'
+// Navigation model: tables are the routing unit (/t/[tableSlug]); bases are grouping.
+// The sidebar shows every base as a section, so there is no separate base switcher —
+// everything is one click away.
+import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -20,7 +20,7 @@ import { CreateBaseModal } from './CreateBaseModal'
 import { CreateTableModal } from './CreateTableModal'
 import { PlusIcon } from './icons'
 
-/** Sentinel chip key for ungrouped tables (base_id null). Not a real base id. */
+/** Sentinel key for the ungrouped ("Workspace") section. Not a real base id. */
 const WORKSPACE_KEY = '__workspace__'
 
 export function AppShell({
@@ -39,39 +39,29 @@ export function AppShell({
   const [tableModalOpen, setTableModalOpen] = useState(false)
   const [baseModalOpen, setBaseModalOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
   const activeSlug = pathname.startsWith('/t/') ? pathname.split('/')[2] : null
   const activeTable = activeSlug ? tables.find((t) => t.slug === activeSlug) ?? null : null
 
   const ungrouped = useMemo(() => tables.filter((t) => !t.base_id), [tables])
 
-  // Chip list: real bases in position order, then the Workspace chip iff ungrouped exist.
-  const chips = useMemo(() => {
-    const list: Array<{ key: string; name: string; icon: string | null }> = bases.map((b) => ({
-      key: b.id,
-      name: b.name,
-      icon: b.icon,
-    }))
-    if (ungrouped.length > 0) list.push({ key: WORKSPACE_KEY, name: 'Workspace', icon: null })
+  const sections = useMemo(() => {
+    const list: Array<{ key: string; name: string; icon: string | null; tables: EngineTable[] }> =
+      bases.map((b) => ({
+        key: b.id,
+        name: b.name,
+        icon: b.icon,
+        tables: tables.filter((t) => t.base_id === b.id),
+      }))
+    if (ungrouped.length > 0)
+      list.push({ key: WORKSPACE_KEY, name: 'Workspace', icon: null, tables: ungrouped })
     return list
-  }, [bases, ungrouped])
+  }, [bases, tables, ungrouped])
 
-  // The active base follows the active table; a chip click selects directly (and usually
-  // also navigates, which re-derives the same key). selectedKey only leads when there's no
-  // table context (e.g. an empty base, or no table open).
-  const derivedKey = activeTable ? activeTable.base_id ?? WORKSPACE_KEY : null
-  const [selectedKey, setSelectedKey] = useState<string | null>(derivedKey)
-  useEffect(() => {
-    if (derivedKey) setSelectedKey(derivedKey)
-  }, [derivedKey])
-  const activeKey = derivedKey ?? selectedKey ?? chips[0]?.key ?? null
-
-  // The tab strip shows only the active base's tables.
-  const visibleTables = useMemo(() => {
-    if (!activeKey) return tables
-    if (activeKey === WORKSPACE_KEY) return ungrouped
-    return tables.filter((t) => t.base_id === activeKey)
-  }, [tables, ungrouped, activeKey])
+  const activeBase = activeTable
+    ? sections.find((s) => s.key === (activeTable.base_id ?? WORKSPACE_KEY)) ?? null
+    : null
 
   // /login, /auth, public /f/ form pages, and the /retention/ analytics section render
   // bare (no shell chrome — retention has its own back link to the client record).
@@ -82,16 +72,6 @@ export function AppShell({
     pathname.startsWith('/retention/')
   ) {
     return <>{children}</>
-  }
-
-  function switchBase(key: string) {
-    setSelectedKey(key)
-    const target =
-      key === WORKSPACE_KEY ? ungrouped : tables.filter((t) => t.base_id === key)
-    // Already inside this base? Stay put. Otherwise jump to its first table (if any).
-    if (activeTable && (activeTable.base_id ?? WORKSPACE_KEY) === key) return
-    const first = target[0]
-    if (first) router.push(`/t/${first.slug}`)
   }
 
   async function handleCreateTable(input: {
@@ -107,17 +87,158 @@ export function AppShell({
   }
 
   async function handleCreateBase(input: { name: string; icon?: string }) {
-    const base = await api.createBase(input)
+    await api.createBase(input)
     setBaseModalOpen(false)
-    setSelectedKey(base.id)
     router.refresh()
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      {/* Main column: header + base bar + tabs + content */}
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
+      {/* Left navigation */}
+      <nav
+        data-testid="left-nav"
+        style={{
+          width: 232,
+          flexShrink: 0,
+          borderRight: '1px solid var(--border)',
+          background: 'var(--bg-subtle, #fafafa)',
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: 0,
+        }}
+      >
+        {/* Org mark */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 9,
+            fontWeight: 650,
+            fontSize: 14,
+            padding: '14px 14px 12px',
+          }}
+        >
+          <span
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: 7,
+              background: 'linear-gradient(135deg, var(--accent), #4a90d9)',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 13,
+              flexShrink: 0,
+            }}
+          >
+            ◆
+          </span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {orgName}
+          </span>
+        </div>
+
+        {/* Sections */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '2px 8px 8px' }}>
+          {sections.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: 'var(--text-faint)', padding: '8px 8px' }}>
+              No workspaces yet — create one below.
+            </div>
+          ) : (
+            sections.map((s) => {
+              const isCollapsed = collapsed[s.key] ?? false
+              return (
+                <div key={s.key} style={{ marginBottom: 14 }}>
+                  <button
+                    onClick={() => setCollapsed((c) => ({ ...c, [s.key]: !isCollapsed }))}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      width: '100%',
+                      padding: '4px 8px',
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      letterSpacing: 0.4,
+                      textTransform: 'uppercase',
+                      color: 'var(--text-faint)',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        transition: 'transform 120ms',
+                        transform: isCollapsed ? 'rotate(-90deg)' : 'none',
+                        fontSize: 9,
+                      }}
+                    >
+                      ▾
+                    </span>
+                    {s.icon ? <span style={{ fontSize: 12 }}>{s.icon}</span> : null}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {s.name}
+                    </span>
+                  </button>
+                  {!isCollapsed
+                    ? s.tables.map((t) => {
+                        const active = activeSlug === t.slug
+                        return (
+                          <Link
+                            key={t.id}
+                            href={`/t/${t.slug}`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              padding: '5px 8px 5px 22px',
+                              margin: '1px 0',
+                              fontSize: 13,
+                              fontWeight: active ? 600 : 400,
+                              color: active ? 'var(--accent)' : 'var(--text-muted)',
+                              background: active
+                                ? 'color-mix(in srgb, var(--accent) 9%, transparent)'
+                                : 'transparent',
+                              borderRadius: 6,
+                              textDecoration: 'none',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            <span style={{ fontSize: 13, flexShrink: 0 }}>{t.icon ?? '▦'}</span>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
+                          </Link>
+                        )
+                      })
+                    : null}
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {/* Bottom actions */}
+        <div
+          style={{
+            borderTop: '1px solid var(--border)',
+            padding: 8,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+          }}
+        >
+          <SidebarAction label="New table" onClick={() => setTableModalOpen(true)} />
+          <SidebarAction label="New workspace" onClick={() => setBaseModalOpen(true)} />
+        </div>
+      </nav>
+
+      {/* Main column: top bar + content */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {/* Top header */}
         <header
           style={{
             height: 'var(--header-h)',
@@ -130,23 +251,19 @@ export function AppShell({
             padding: '0 14px',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontWeight: 600, fontSize: 14 }}>
-            <span
-              style={{
-                width: 22,
-                height: 22,
-                borderRadius: 6,
-                background: 'linear-gradient(135deg, var(--accent), #4a90d9)',
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 13,
-              }}
-            >
-              ◆
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, minWidth: 0 }}>
+            {activeBase ? (
+              <>
+                <span style={{ color: 'var(--text-faint)' }}>
+                  {activeBase.icon ? `${activeBase.icon} ` : ''}
+                  {activeBase.name}
+                </span>
+                <span style={{ color: 'var(--text-faint)' }}>/</span>
+              </>
+            ) : null}
+            <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {activeTable ? `${activeTable.icon ? `${activeTable.icon} ` : ''}${activeTable.name}` : ''}
             </span>
-            <span>{orgName}</span>
           </div>
           <button
             onClick={() => setChatOpen((v) => !v)}
@@ -156,152 +273,25 @@ export function AppShell({
               background: 'var(--bg)',
               color: 'var(--text-muted)',
               padding: '4px 10px',
+              flexShrink: 0,
             }}
           >
             {chatOpen ? 'Hide chat' : 'Chat'}
           </button>
         </header>
 
-        {/* Base bar — one chip per base (+ Workspace for ungrouped) above the tab strip */}
-        <div
-          data-testid="base-bar"
-          style={{
-            height: 36,
-            flexShrink: 0,
-            background: 'var(--bg)',
-            borderBottom: '1px solid var(--border)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            padding: '0 10px',
-            overflowX: 'auto',
-            overflowY: 'hidden',
-          }}
-        >
-          {chips.map((chip) => {
-            const active = chip.key === activeKey
-            return (
-              <button
-                key={chip.key}
-                onClick={() => switchBase(chip.key)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '4px 11px',
-                  fontSize: 12.5,
-                  fontWeight: active ? 600 : 400,
-                  color: active ? 'var(--accent)' : 'var(--text-muted)',
-                  background: active ? 'color-mix(in srgb, var(--accent) 10%, var(--bg))' : 'transparent',
-                  border: active ? '1px solid color-mix(in srgb, var(--accent) 35%, var(--bg))' : '1px solid transparent',
-                  borderRadius: 999,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {chip.icon ? <span style={{ fontSize: 13 }}>{chip.icon}</span> : null}
-                <span>{chip.name}</span>
-              </button>
-            )
-          })}
-          <button
-            onClick={() => setBaseModalOpen(true)}
-            title="New base"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '4px 8px',
-              border: 'none',
-              background: 'transparent',
-              color: 'var(--text-muted)',
-            }}
-          >
-            <PlusIcon size={13} />
-          </button>
-        </div>
-
-        {/* Table tabs strip — only the active base's tables */}
-        <div
-          style={{
-            height: 'var(--tabs-h)',
-            flexShrink: 0,
-            background: 'var(--bg-tabs)',
-            borderBottom: '1px solid var(--border)',
-            display: 'flex',
-            alignItems: 'flex-end',
-            paddingLeft: 8,
-            overflowX: 'auto',
-            overflowY: 'hidden',
-          }}
-        >
-          {visibleTables.length === 0 ? (
-            <span style={{ color: 'var(--text-faint)', fontSize: 12, padding: '0 10px 10px' }}>
-              {tables.length === 0
-                ? 'No tables yet — click + to create one.'
-                : 'No tables in this base yet — click + to create one.'}
-            </span>
-          ) : (
-            visibleTables.map((t) => {
-              const active = activeSlug === t.slug
-              return (
-                <Link
-                  key={t.id}
-                  href={`/t/${t.slug}`}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    height: 'calc(var(--tabs-h) - 1px)',
-                    padding: '0 14px',
-                    marginBottom: -1,
-                    fontSize: 13,
-                    fontWeight: active ? 600 : 400,
-                    color: active ? 'var(--text)' : 'var(--text-muted)',
-                    background: active ? 'var(--bg)' : 'transparent',
-                    border: active ? '1px solid var(--border)' : '1px solid transparent',
-                    borderBottom: active ? '1px solid var(--bg)' : '1px solid transparent',
-                    borderTopLeftRadius: 8,
-                    borderTopRightRadius: 8,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  <span style={{ fontSize: 13 }}>{t.icon ?? '▦'}</span>
-                  <span>{t.name}</span>
-                </Link>
-              )
-            })
-          )}
-          <button
-            onClick={() => setTableModalOpen(true)}
-            title="New table"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: 'calc(var(--tabs-h) - 1px)',
-              padding: '0 10px',
-              border: 'none',
-              background: 'transparent',
-              color: 'var(--text-muted)',
-            }}
-          >
-            <PlusIcon size={14} />
-          </button>
-        </div>
-
-        {/* Active table page */}
         <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           {children}
         </div>
       </div>
 
-      {/* Right chat sidebar (placeholder — Phase C wires it up) */}
+      {/* Right chat panel */}
       {chatOpen ? <ChatPanel onClose={() => setChatOpen(false)} /> : null}
 
       {tableModalOpen ? (
         <CreateTableModal
           bases={bases}
-          defaultBaseId={activeKey && activeKey !== WORKSPACE_KEY ? activeKey : null}
+          defaultBaseId={activeTable?.base_id ?? null}
           onClose={() => setTableModalOpen(false)}
           onCreate={handleCreateTable}
         />
@@ -311,5 +301,29 @@ export function AppShell({
         <CreateBaseModal onClose={() => setBaseModalOpen(false)} onCreate={handleCreateBase} />
       ) : null}
     </div>
+  )
+}
+
+function SidebarAction({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 7,
+        padding: '5px 8px',
+        fontSize: 12.5,
+        color: 'var(--text-muted)',
+        background: 'transparent',
+        border: 'none',
+        borderRadius: 6,
+        cursor: 'pointer',
+        textAlign: 'left',
+      }}
+    >
+      <PlusIcon size={12} />
+      {label}
+    </button>
   )
 }

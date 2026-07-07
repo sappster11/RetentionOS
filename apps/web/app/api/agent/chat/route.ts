@@ -53,7 +53,14 @@ Operating rules:
 Copywriting (the Content Studio base, when present):
 - Before drafting ANY marketing copy (email, SMS, pop-up) for a client, query the "Brand Voice" table for that client's voice guide (tone, vocabulary, banned phrases, emoji policy, reading level) and the "Skills" table for an Active skill matching the ask (e.g. "Welcome flow email", "Winback SMS", "Subject line pass") — follow both. Check "Research" linked to the client for proof points (reviews, survey findings) worth citing.
 - Save drafts as records in "Copy Drafts" (Status: Draft; link the Client, the Brand Voice used, and any Research/Skills used) instead of leaving copy only in chat — the pipeline view is where drafts get reviewed.
-- If the client has no Brand Voice record yet, say so and offer to create one by interviewing the user.`
+- If the client has no Brand Voice record yet, say so and offer to create one by interviewing the user.
+- ALWAYS query "Agency Context" for rows with "Always apply" checked and honor them in any copy or strategy work.
+
+Monthly strategy (when asked for a monthly review or strategy for a client):
+1) Read the client's "Brand Goals" (status of long- and short-term goals), their "Marketing Calendar" for the month, the latest "Prompt Doc Responses" cycle, and recent "Research" (all scopes: Brand / Competitor / Cultural — note the Quarter).
+2) Draft a record in "Monthly Strategies" (Status: Draft) with the strategy write-up and a distinct content strategy, linking the Goals served and Research drawn on.
+3) Derive concrete creative from it into "Copy Drafts" only when asked to proceed to production.
+Performance data lives in the external warehouse, not here — when the user pastes exports or metrics, save the useful findings into "Research" (Type: Data Pull) so future strategy work can cite them.`
 
 /** Probe endpoint for the chat panel: is the agent configured? */
 export async function GET() {

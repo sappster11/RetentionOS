@@ -75,8 +75,21 @@ async function ensureTable(
 ): Promise<{ table: EngineTable; fieldIds: Record<string, string>; fresh: boolean }> {
   const existing = await getTableBySlug(orgId, spec.slug)
   if (existing) {
+    // Self-heal: add any spec fields the existing table is missing (by name), so later
+    // seed versions can extend earlier deployments (e.g. Research gaining Scope/Quarter).
     const desc = await describeTable(orgId, existing.id)
     const fieldIds = Object.fromEntries(desc.fields.map((f) => [f.name, f.id]))
+    for (const f of fields) {
+      if (fieldIds[f.name]) continue
+      const field = await createField(
+        orgId,
+        existing.id,
+        { name: f.name, type: f.type as never, options: f.options as never },
+        SEED_ACTOR,
+      )
+      fieldIds[f.name] = field.id
+      created.fields += 1
+    }
     return { table: existing, fieldIds, fresh: false }
   }
   const table = await createTable(
@@ -154,6 +167,8 @@ async function main() {
       { name: 'Raw notes', type: 'long_text' },
       { name: 'Source URL', type: 'url' },
       { name: 'Captured', type: 'date' },
+      { name: 'Scope', type: 'single_select', options: sel('Brand', 'Competitor', 'Cultural') },
+      { name: 'Quarter', type: 'text' },
     ],
   )
   await ensureClientLink(orgId, research.table, 'Client')
@@ -228,6 +243,141 @@ async function main() {
       config: { filters: [{ fieldId: statusId, op: 'eq', value: 'in_review' }] },
     })
     created.views += 2
+  }
+
+  // --- Copywriting OS ingestion + output tables (docs/13) -----------------------
+  const resources = await ensureTable(
+    orgId,
+    baseId,
+    {
+      name: 'Brand Resources',
+      slug: 'brand-resources',
+      icon: '📦',
+      description:
+        'Per-client uploads (brand guide, logos, catalogs, review exports). Freshness = built-in last-modified + revision history.',
+    },
+    [
+      { name: 'Resource', type: 'text' },
+      {
+        name: 'Type',
+        type: 'single_select',
+        options: sel('Brand Guide', 'Logo Pack', 'Product Catalog', 'Photography', 'Reviews Export', 'Other'),
+      },
+      { name: 'URL', type: 'url' },
+      { name: 'Notes', type: 'long_text' },
+      { name: 'Last updated', type: 'last_modified_time' },
+    ],
+  )
+  await ensureClientLink(orgId, resources.table, 'Client')
+
+  const promptDocs = await ensureTable(
+    orgId,
+    baseId,
+    {
+      name: 'Prompt Doc Responses',
+      slug: 'prompt-doc-responses',
+      icon: '❓',
+      description:
+        'The monthly questionnaire, native: one row per question per client per cycle. Cycle "Template" holds the canonical question set.',
+    },
+    [
+      { name: 'Question', type: 'text' },
+      { name: 'Cycle', type: 'text' },
+      { name: 'Section', type: 'single_select', options: sel('Products', 'Promotions', 'Audience', 'Brand', 'Other') },
+      { name: 'Answer', type: 'long_text' },
+      { name: 'Status', type: 'single_select', options: sel('Awaiting', 'Answered', 'Reviewed') },
+    ],
+  )
+  await ensureClientLink(orgId, promptDocs.table, 'Client')
+
+  const goals = await ensureTable(
+    orgId,
+    baseId,
+    {
+      name: 'Brand Goals',
+      slug: 'brand-goals',
+      icon: '🎯',
+      description: 'Long- and short-term goals per client; monthly strategies link to the goals they serve.',
+    },
+    [
+      { name: 'Goal', type: 'text' },
+      { name: 'Horizon', type: 'single_select', options: sel('Long term', 'Short term') },
+      { name: 'Metric', type: 'text' },
+      { name: 'Target', type: 'text' },
+      { name: 'Due', type: 'date' },
+      { name: 'Status', type: 'single_select', options: sel('Active', 'Achieved', 'Paused', 'Dropped') },
+    ],
+  )
+  await ensureClientLink(orgId, goals.table, 'Client')
+
+  const agencyCtx = await ensureTable(
+    orgId,
+    baseId,
+    {
+      name: 'Agency Context',
+      slug: 'agency-context',
+      icon: '🏛️',
+      description:
+        'Org-level context (positioning, writing principles, do/don\'ts). Rows with "Always apply" checked are injected into every copy task.',
+    },
+    [
+      { name: 'Topic', type: 'text' },
+      { name: 'Context', type: 'long_text' },
+      { name: 'Always apply', type: 'checkbox' },
+    ],
+  )
+
+  const calendar = await ensureTable(
+    orgId,
+    baseId,
+    {
+      name: 'Marketing Calendar',
+      slug: 'marketing-calendar',
+      icon: '📅',
+      description: 'Per-client campaign moments; reviewed in the monthly cycle.',
+    },
+    [
+      { name: 'Moment', type: 'text' },
+      { name: 'Date', type: 'date' },
+      { name: 'Channel', type: 'single_select', options: sel('Email', 'SMS', 'Both', 'Other') },
+      { name: 'Status', type: 'single_select', options: sel('Planned', 'In production', 'Scheduled', 'Sent') },
+      { name: 'Notes', type: 'long_text' },
+    ],
+  )
+  await ensureClientLink(orgId, calendar.table, 'Client')
+
+  const strategies = await ensureTable(
+    orgId,
+    baseId,
+    {
+      name: 'Monthly Strategies',
+      slug: 'monthly-strategies',
+      icon: '🧭',
+      description:
+        'The monthly strategy write-up per client — agent-draftable, human-approved, linked to the goals it serves and the research it draws on.',
+    },
+    [
+      { name: 'Title', type: 'text' },
+      { name: 'Month', type: 'text' },
+      { name: 'Strategy', type: 'long_text' },
+      { name: 'Content strategy', type: 'long_text' },
+      { name: 'Status', type: 'single_select', options: sel('Draft', 'In Review', 'Approved') },
+    ],
+  )
+  await ensureClientLink(orgId, strategies.table, 'Client')
+  if (strategies.fresh) {
+    for (const [name, target] of [
+      ['Goals served', goals.table.id],
+      ['Research drawn on', research.table.id],
+    ] as const) {
+      await createField(
+        orgId,
+        strategies.table.id,
+        { name, type: 'linked_record', options: { linkedTableId: target } },
+        SEED_ACTOR,
+      )
+      created.fields += 1
+    }
   }
 
   // --- Starter skills (fresh table, or an existing one left empty by a previous
