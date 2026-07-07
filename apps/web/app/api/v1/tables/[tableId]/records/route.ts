@@ -18,7 +18,9 @@ type Params = { params: Promise<{ tableId: string }> }
  * GET /api/v1/tables/[tableId]/records
  *   ?limit=&offset=
  *   &sort=<fieldId>:asc|desc  (repeatable)
- *   &filter=<fieldId>:<op>:<value>  (repeatable; op is_empty/is_not_empty take no value)
+ *   &filter=<fieldId>:<op>:<value>  (repeatable; ops is_empty/is_not_empty and the
+ *   relative-date ops on_or_before_today/on_or_after_today take no value — the latter
+ *   evaluate against the query moment, date/datetime fields only)
  */
 export async function GET(request: Request, { params }: Params) {
   try {

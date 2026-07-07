@@ -315,12 +315,22 @@ const VALUE_FORMATS =
 const filterSchema = z.object({
   fieldId: z.string().uuid().describe('Field id to filter on (not computed/linked fields).'),
   op: z
-    .enum(['eq', 'neq', 'contains', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'is_not_empty'])
-    .describe('Comparison. "contains" is case-insensitive substring on text.'),
+    .enum([
+      'eq', 'neq', 'contains', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'is_not_empty',
+      'on_or_before_today', 'on_or_after_today',
+    ])
+    .describe(
+      'Comparison. "contains" is case-insensitive substring on text. ' +
+        'on_or_before_today / on_or_after_today are valueless relative-date ops for ' +
+        'date/datetime fields, evaluated at query time.',
+    ),
   value: z
     .unknown()
     .optional()
-    .describe('Comparison value (omit for is_empty / is_not_empty). Use choice ids for selects.'),
+    .describe(
+      'Comparison value (omit for is_empty / is_not_empty and the relative-date ops). ' +
+        'Use choice ids for selects.',
+    ),
 })
 
 const sortSchema = z.object({

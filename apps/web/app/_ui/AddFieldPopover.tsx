@@ -51,13 +51,22 @@ const ROLLUP_AGGREGATES: { value: string; label: string }[] = [
 const COLOR_NAMES = Object.keys(CHOICE_COLORS)
 
 // Lookup/rollup "Only include records where…" condition operators (the engine's
-// LINK_FILTER_OPS vocabulary, labeled for humans).
-const FILTER_OPS: { value: LinkFilterOp; label: string }[] = [
+// LINK_FILTER_OPS vocabulary, labeled for humans). Relative-date ops apply to
+// date/datetime fields only and are evaluated at read time (never frozen).
+const FILTER_OPS: { value: LinkFilterOp; label: string; dateOnly?: boolean }[] = [
   { value: 'eq', label: 'is' },
   { value: 'neq', label: 'is not' },
   { value: 'is_empty', label: 'is empty' },
   { value: 'is_not_empty', label: 'is not empty' },
+  { value: 'on_or_before_today', label: 'is on or before today', dateOnly: true },
+  { value: 'on_or_after_today', label: 'is on or after today', dateOnly: true },
 ]
+
+/** The condition ops valid for a given linked-table field. */
+function filterOpsForField(field: EngineField | undefined) {
+  const isDate = field?.type === 'date' || field?.type === 'datetime'
+  return FILTER_OPS.filter((o) => !o.dateOnly || isDate)
+}
 
 interface FilterRow {
   fieldId: string
@@ -146,7 +155,9 @@ export function AddFieldPopover({
     api.listTables().then(setTables).catch(() => setTables([]))
   }, [needsTables, tables.length])
 
-  // When a link field is chosen for lookup/rollup, load the target table's concrete fields.
+  // When a link field is chosen for lookup/rollup, load the target table's targetable
+  // fields: concrete ones, plus LOOKUPS (depth-2 chaining — the engine validates that a
+  // chained lookup's own target resolves concrete and rejects deeper chains).
   useEffect(() => {
     if (!needsLinkPicker || !recordLinkFieldId) {
       setTargetFields([])
@@ -157,7 +168,11 @@ export function AddFieldPopover({
     if (!targetTableId) return
     api
       .describeTable(targetTableId)
-      .then((d) => setTargetFields(d.fields.filter((f) => !COMPUTED_FIELD_TYPES.includes(f.type))))
+      .then((d) =>
+        setTargetFields(
+          d.fields.filter((f) => !COMPUTED_FIELD_TYPES.includes(f.type) || f.type === 'lookup'),
+        ),
+      )
       .catch(() => setTargetFields([]))
   }, [needsLinkPicker, recordLinkFieldId, linkFields])
 
@@ -351,14 +366,26 @@ export function AddFieldPopover({
                 </span>
                 {filters.map((row, i) => {
                   const needsValue = row.op === 'eq' || row.op === 'neq'
+                  const rowField = filterableFields.find((f) => f.id === row.fieldId)
+                  const rowOps = filterOpsForField(rowField)
                   return (
                     <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       <div style={{ display: 'flex', gap: 4 }}>
                         <select
                           value={row.fieldId}
-                          onChange={(e) =>
-                            setFilters((fs) => fs.map((x, j) => (j === i ? { ...x, fieldId: e.target.value } : x)))
-                          }
+                          onChange={(e) => {
+                            const fieldId = e.target.value
+                            const next = filterableFields.find((f) => f.id === fieldId)
+                            // A relative-date op can't survive a switch to a non-date field.
+                            const opStillValid = filterOpsForField(next).some((o) => o.value === row.op)
+                            setFilters((fs) =>
+                              fs.map((x, j) =>
+                                j === i
+                                  ? { ...x, fieldId, ...(opStillValid ? {} : { op: 'eq' as LinkFilterOp, value: '' }) }
+                                  : x,
+                              ),
+                            )
+                          }}
                           style={{ ...inputStyle, flex: 1, minWidth: 0 }}
                         >
                           <option value="">— field —</option>
@@ -377,7 +404,7 @@ export function AddFieldPopover({
                           }
                           style={{ ...inputStyle, width: 104 }}
                         >
-                          {FILTER_OPS.map((o) => (
+                          {rowOps.map((o) => (
                             <option key={o.value} value={o.value}>
                               {o.label}
                             </option>

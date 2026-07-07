@@ -24,7 +24,7 @@ import { FieldIcon } from './icons'
 
 type PopId = 'hide' | 'sort' | 'filter' | 'search' | null
 
-const FILTER_OPS: { op: FilterCondition['op']; label: string; noValue?: boolean }[] = [
+const FILTER_OPS: { op: FilterCondition['op']; label: string; noValue?: boolean; dateOnly?: boolean }[] = [
   { op: 'contains', label: 'contains' },
   { op: 'eq', label: 'is' },
   { op: 'neq', label: 'is not' },
@@ -34,7 +34,16 @@ const FILTER_OPS: { op: FilterCondition['op']; label: string; noValue?: boolean 
   { op: 'lte', label: '≤' },
   { op: 'is_empty', label: 'is empty', noValue: true },
   { op: 'is_not_empty', label: 'is not empty', noValue: true },
+  // Relative-date ops: date/datetime fields only, evaluated at read time (never stale).
+  { op: 'on_or_before_today', label: 'is on or before today', noValue: true, dateOnly: true },
+  { op: 'on_or_after_today', label: 'is on or after today', noValue: true, dateOnly: true },
 ]
+
+/** The op choices valid for a given field (relative-date ops only on date/datetime). */
+function opsForField(field: EngineField | undefined) {
+  const isDate = field?.type === 'date' || field?.type === 'datetime'
+  return FILTER_OPS.filter((o) => !o.dateOnly || isDate)
+}
 
 export function Toolbar({
   viewName,
@@ -458,10 +467,22 @@ function FilterPopover({
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {filters.map((f, i) => {
+            const field = fields.find((fl) => fl.id === f.fieldId)
+            const ops = opsForField(field)
             const opDef = FILTER_OPS.find((o) => o.op === f.op)
             return (
               <div key={i} style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                <select value={f.fieldId} onChange={(e) => update(i, { fieldId: e.target.value })} style={{ ...selStyle, flex: 1 }}>
+                <select
+                  value={f.fieldId}
+                  onChange={(e) => {
+                    const fieldId = e.target.value
+                    const next = fields.find((fl) => fl.id === fieldId)
+                    // A relative-date op can't survive a switch to a non-date field.
+                    const opStillValid = opsForField(next).some((o) => o.op === f.op)
+                    update(i, { fieldId, ...(opStillValid ? {} : { op: 'contains', value: '' }) })
+                  }}
+                  style={{ ...selStyle, flex: 1 }}
+                >
                   {fields.map((fl) => (
                     <option key={fl.id} value={fl.id}>
                       {fl.name}
@@ -470,10 +491,15 @@ function FilterPopover({
                 </select>
                 <select
                   value={f.op}
-                  onChange={(e) => update(i, { op: e.target.value as FilterCondition['op'] })}
-                  style={{ ...selStyle, width: 120 }}
+                  onChange={(e) => {
+                    const op = e.target.value as FilterCondition['op']
+                    const noValue = FILTER_OPS.find((o) => o.op === op)?.noValue
+                    // Valueless ops must not carry a stale value (the engine rejects it).
+                    update(i, { op, ...(noValue ? { value: undefined } : {}) })
+                  }}
+                  style={{ ...selStyle, width: 150 }}
                 >
-                  {FILTER_OPS.map((o) => (
+                  {ops.map((o) => (
                     <option key={o.op} value={o.op}>
                       {o.label}
                     </option>
