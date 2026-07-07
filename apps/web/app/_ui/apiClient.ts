@@ -119,6 +119,11 @@ export const api = {
       method: 'DELETE',
     }),
 
+  enablePortal: (tableId: string, recordId: string) =>
+    req<{ token: string }>(`/api/v1/tables/${tableId}/records/${recordId}/portal`, {
+      method: 'POST',
+    }).then((r) => r.token),
+
   convertLead: (tableId: string, recordId: string) =>
     req<{ result: ConvertLeadResult }>(`/api/v1/tables/${tableId}/records/${recordId}/convert`, {
       method: 'POST',

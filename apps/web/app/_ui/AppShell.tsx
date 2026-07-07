@@ -69,7 +69,8 @@ export function AppShell({
     pathname.startsWith('/login') ||
     pathname.startsWith('/auth') ||
     pathname.startsWith('/f/') ||
-    pathname.startsWith('/retention/')
+    pathname.startsWith('/retention/') ||
+    pathname.startsWith('/c/')
   ) {
     return <>{children}</>
   }

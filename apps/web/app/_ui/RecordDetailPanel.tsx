@@ -107,9 +107,9 @@ export function RecordDetailPanel({
           {/* Lead → Client conversion (Leads rows in Closed (Won) only) */}
           <ConvertLeadSection table={table} fields={fields} record={record} />
 
-          {/* Retention analytics (Clients rows only) */}
+          {/* Retention analytics + portal (Clients rows only) */}
           {table.slug === 'clients' ? (
-            <div style={{ padding: '10px 16px 2px' }}>
+            <div style={{ padding: '10px 16px 2px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <a
                 href={`/retention/${record.id}`}
                 style={{
@@ -127,6 +127,7 @@ export function RecordDetailPanel({
               >
                 📈 Retention analytics →
               </a>
+              <PortalSection table={table} fields={fields} record={record} />
             </div>
           ) : null}
 
@@ -498,4 +499,100 @@ const badgeStyle: React.CSSProperties = {
   border: '1px solid var(--border)',
   borderRadius: 4,
   padding: '1px 5px',
+}
+
+/** Portal link management for Clients rows: enable/regenerate the capability link and
+ * copy it. Token lives in the "Portal token" field (created on first enable). */
+function PortalSection({
+  table,
+  fields,
+  record,
+}: {
+  table: EngineTable
+  fields: EngineField[]
+  record: EnrichedRecord
+}) {
+  const tokenField = fields.find((f) => f.name === 'Portal token')
+  const existing = tokenField ? ((record.values[tokenField.id] as string) || null) : null
+  const [token, setToken] = useState<string | null>(existing)
+  const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  async function enable() {
+    setBusy(true)
+    try {
+      const t = await api.enablePortal(table.id, record.id)
+      setToken(t)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const url = token && typeof window !== 'undefined' ? `${window.location.origin}/c/${token}` : null
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      {url ? (
+        <>
+          <button
+            onClick={() => {
+              void navigator.clipboard.writeText(url)
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1500)
+            }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 13,
+              fontWeight: 500,
+              color: 'var(--accent)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: '6px 12px',
+              background: 'var(--bg)',
+              cursor: 'pointer',
+            }}
+          >
+            🔗 {copied ? 'Copied!' : 'Copy portal link'}
+          </button>
+          <button
+            onClick={enable}
+            disabled={busy}
+            title="Regenerating revokes the previous link"
+            style={{
+              fontSize: 12,
+              color: 'var(--text-muted)',
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+          >
+            regenerate
+          </button>
+        </>
+      ) : (
+        <button
+          onClick={enable}
+          disabled={busy}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 13,
+            fontWeight: 500,
+            color: 'var(--accent)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            padding: '6px 12px',
+            background: 'var(--bg)',
+            cursor: 'pointer',
+          }}
+        >
+          🌐 {busy ? 'Enabling…' : 'Enable client portal'}
+        </button>
+      )}
+    </span>
+  )
 }
