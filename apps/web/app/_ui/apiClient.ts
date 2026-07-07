@@ -1,6 +1,7 @@
 // Thin browser fetch wrapper over the /api/v1 REST surface. The UI talks to the API (not
 // the engine service layer directly), so the API is exercised by the app itself.
 import type {
+  ConvertLeadResult,
   EngineBase,
   EngineField,
   EngineRecordRevision,
@@ -113,6 +114,11 @@ export const api = {
     req<{ deleted: number }>(`/api/v1/tables/${tableId}/records/${recordId}`, {
       method: 'DELETE',
     }),
+
+  convertLead: (tableId: string, recordId: string) =>
+    req<{ result: ConvertLeadResult }>(`/api/v1/tables/${tableId}/records/${recordId}/convert`, {
+      method: 'POST',
+    }).then((r) => r.result),
 
   listRevisions: (tableId: string, recordId: string) =>
     req<{ revisions: EngineRecordRevision[] }>(

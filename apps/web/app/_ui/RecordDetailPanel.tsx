@@ -7,6 +7,7 @@
 // (actor icon, relative time, per-field before→after) below.
 import { useCallback, useEffect, useState } from 'react'
 import type {
+  ConvertLeadResult,
   EngineField,
   EngineRecordRevision,
   EngineTable,
@@ -103,6 +104,9 @@ export function RecordDetailPanel({
 
         {/* Scrollable body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+          {/* Lead → Client conversion (Leads rows in Closed (Won) only) */}
+          <ConvertLeadSection table={table} fields={fields} record={record} />
+
           {/* Fields */}
           <div style={{ padding: '8px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
             {fields.map((f) => {
@@ -173,6 +177,116 @@ export function RecordDetailPanel({
         </div>
       </aside>
     </>
+  )
+}
+
+/**
+ * "Convert to client…" — shown ONLY on Leads rows whose Stage is Closed (Won).
+ * Two-step confirm (no browser dialog), then POST /convert; on success renders the
+ * created/skipped summary with a link that opens the client record in the Clients table.
+ */
+function ConvertLeadSection({
+  table,
+  fields,
+  record,
+}: {
+  table: EngineTable
+  fields: EngineField[]
+  record: EnrichedRecord
+}) {
+  const [confirming, setConfirming] = useState(false)
+  const [working, setWorking] = useState(false)
+  const [result, setResult] = useState<ConvertLeadResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // Reset transient state when the panel moves to another record.
+  useEffect(() => {
+    setConfirming(false)
+    setWorking(false)
+    setResult(null)
+    setError(null)
+  }, [record.id])
+
+  if (table.slug !== 'leads') return null
+  const stageField = fields.find((f) => f.name === 'Stage' && f.type === 'single_select')
+  const stageChoice = stageField
+    ? (stageField.options.choices ?? []).find((c) => c.id === record.values[stageField.id])
+    : undefined
+  if (stageChoice?.name !== 'Closed (Won)') return null
+
+  const convert = async () => {
+    setWorking(true)
+    setError(null)
+    try {
+      setResult(await api.convertLead(table.id, record.id))
+      setConfirming(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Conversion failed.')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  if (result) {
+    const c = result.created
+    const counts = [
+      c.client ? '1 client' : 'existing client reused',
+      `${c.contactsRelinked} contact${c.contactsRelinked === 1 ? '' : 's'} linked`,
+      `${c.engagements} engagement${c.engagements === 1 ? '' : 's'}`,
+      c.activities ? 'activity logged' : null,
+    ].filter(Boolean)
+    return (
+      <div style={{ ...convertBoxStyle, background: '#eefbf1', borderColor: '#bfe8ca' }}>
+        <div style={{ fontWeight: 600, color: '#177239' }}>
+          {result.clientCreated ? 'Converted to client.' : 'Linked to existing client.'}
+        </div>
+        <div style={{ color: 'var(--text-muted)' }}>{counts.join(' · ')}</div>
+        {result.skipped.length > 0 ? (
+          <ul style={{ margin: '4px 0 0', paddingLeft: 16, color: 'var(--text-muted)' }}>
+            {result.skipped.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        ) : null}
+        <a
+          href={`/t/${result.clientTableSlug}?record=${result.clientRecordId}`}
+          style={{ color: 'var(--accent)', fontWeight: 500, marginTop: 4, display: 'inline-block' }}
+        >
+          Open client record →
+        </a>
+      </div>
+    )
+  }
+
+  return (
+    <div style={convertBoxStyle}>
+      {confirming ? (
+        <>
+          <div style={{ color: 'var(--text)' }}>
+            Convert this lead to a client? This creates the client record, links its contacts,
+            and sets up engagements from the agreement.
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <button onClick={() => void convert()} disabled={working} style={convertPrimaryBtn}>
+              {working ? 'Converting…' : 'Convert'}
+            </button>
+            <button onClick={() => setConfirming(false)} disabled={working} style={convertGhostBtn}>
+              Cancel
+            </button>
+          </div>
+        </>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{ color: 'var(--text-muted)' }}>
+            This deal is <strong style={{ color: 'var(--text)' }}>Closed (Won)</strong>.
+          </span>
+          <button onClick={() => setConfirming(true)} style={convertPrimaryBtn}>
+            Convert to client…
+          </button>
+        </div>
+      )}
+      {error ? <div style={{ color: 'var(--danger)', marginTop: 6 }}>{error}</div> : null}
+    </div>
   )
 }
 
@@ -316,6 +430,40 @@ const iconBtn: React.CSSProperties = {
   cursor: 'pointer',
   display: 'flex',
   padding: 4,
+}
+
+const convertBoxStyle: React.CSSProperties = {
+  margin: '10px 16px 0',
+  padding: '10px 12px',
+  border: '1px solid var(--border)',
+  borderRadius: 8,
+  background: 'var(--bg-subtle)',
+  fontSize: 12.5,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+}
+
+const convertPrimaryBtn: React.CSSProperties = {
+  border: 'none',
+  background: 'var(--accent)',
+  color: '#fff',
+  borderRadius: 6,
+  padding: '6px 12px',
+  fontWeight: 500,
+  fontSize: 12.5,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+}
+
+const convertGhostBtn: React.CSSProperties = {
+  border: '1px solid var(--border)',
+  background: 'transparent',
+  color: 'var(--text-muted)',
+  borderRadius: 6,
+  padding: '6px 12px',
+  fontSize: 12.5,
+  cursor: 'pointer',
 }
 
 const badgeStyle: React.CSSProperties = {

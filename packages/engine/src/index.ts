@@ -45,6 +45,8 @@ export {
   // revisions
   listRecordRevisions,
 } from './engine'
+export { convertLead } from './convert'
+export type { ConvertLeadResult } from './convert'
 export type {
   FormField,
   FormDescriptor,

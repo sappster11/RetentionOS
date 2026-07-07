@@ -35,12 +35,16 @@ export function TableWorkspace({
   initialViews,
   initialRecords,
   initialTotal,
+  initialDetailRecordId = null,
 }: {
   table: EngineTable
   initialFields: EngineField[]
   initialViews: EngineView[]
   initialRecords: EnrichedRecord[]
   initialTotal: number
+  /** Open this record's detail panel on mount (the ?record= deep link, e.g. from a
+   * lead-conversion success message). Silently ignored if the record isn't loaded. */
+  initialDetailRecordId?: string | null
 }) {
   const [fields, setFields] = useState<EngineField[]>(initialFields)
   const [records, setRecords] = useState<EnrichedRecord[]>(initialRecords)
@@ -50,7 +54,7 @@ export function TableWorkspace({
   const [viewsOpen, setViewsOpen] = useState(true)
   const [search, setSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [detailRecordId, setDetailRecordId] = useState<string | null>(null)
+  const [detailRecordId, setDetailRecordId] = useState<string | null>(initialDetailRecordId)
 
   // Per-record monotonic generation counter. Each commit bumps its record's generation and
   // captures the value; a resolved PATCH (or failure-refetch) is applied only if it's still
