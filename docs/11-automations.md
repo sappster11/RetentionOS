@@ -1,7 +1,10 @@
 # 11 — Native Automations (specification)
 
-**Status: authoritative design, not yet built.** Next major platform capability after the
-in-app agent (docs/08 "Later" order). Written 2026-07-06.
+**Status: BUILT (2026-07-07)** — engine (migration 0014, `packages/engine/src/automations.ts`
++ `automationShared.ts`), REST (`/api/v1/automations`, drain at `/api/automations/drain`
+with a Vercel cron), MCP tools (create/update/delete/list + run log). Automations are
+runtime data end to end — nothing hardcoded. UI placement: pending Jacob's call
+(candidates: per-table toolbar panel vs a nav-level Automations section). Written 2026-07-06.
 
 ## Why now
 

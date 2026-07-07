@@ -13,7 +13,7 @@ const repoRoot = join(here, '..', '..', '..')
 const migrationsDir = join(repoRoot, 'packages', 'db', 'migrations')
 const shimPath = join(repoRoot, 'packages', 'db', 'local', '000_supabase_shim.sql')
 
-const ENGINE_MIGRATIONS = ['0001_foundations.sql', '0009_engine.sql', '0010_engine_links.sql', '0011_engine_bases.sql']
+const ENGINE_MIGRATIONS = ['0001_foundations.sql', '0009_engine.sql', '0010_engine_links.sql', '0011_engine_bases.sql', '0014_engine_automations.sql']
 
 let pgServer: EmbeddedPostgres | null = null
 let dataDir: string | null = null

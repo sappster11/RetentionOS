@@ -9,6 +9,7 @@ import { getPool, query, queryOne, slugify } from '@retentionos/db'
 import { coerceValue, coerceValues, isFieldType, validateFieldOptions } from './fieldTypes'
 import { parseFormula, referencedFieldIds } from './formula'
 import { enrichRecords, syncLinksForField } from './links'
+import { enqueueAutomationRuns } from './automationShared'
 import {
   EngineError,
   FormSubmissionError,
@@ -870,6 +871,18 @@ export async function createRecord(
       op: 'create',
       diff: { ...createDiff(stored), ...linkDiff },
     })
+    // Transactional outbox: matching enabled automations enqueue runs in THIS tx, so a
+    // committed record change can never miss its automations (docs/11).
+    await enqueueAutomationRuns(client, {
+      orgId,
+      tableId,
+      recordId: record.id,
+      op: 'create',
+      diff: { ...createDiff(stored), ...linkDiff },
+      actor,
+      values: { ...record.values, ...Object.fromEntries([...links].map(([k, v]) => [k, v])) },
+      fields,
+    })
     await client.query('commit')
     return record
   } catch (err) {
@@ -937,6 +950,17 @@ export async function updateRecord(
     // Only log a revision if something actually changed (values or links).
     if (Object.keys(diff).length > 0) {
       await writeRevision(client, { recordId, tableId, orgId, actor, op: 'update', diff })
+      // Transactional outbox (docs/11): same-tx enqueue for matching automations.
+      await enqueueAutomationRuns(client, {
+        orgId,
+        tableId,
+        recordId,
+        op: 'update',
+        diff,
+        actor,
+        values: { ...after, ...Object.fromEntries([...linkPatch].map(([k, v]) => [k, v])) },
+        fields,
+      })
     }
     await client.query('commit')
     return record

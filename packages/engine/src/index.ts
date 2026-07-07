@@ -48,6 +48,23 @@ export {
 export { convertLead } from './convert'
 export type { ConvertLeadResult } from './convert'
 export {
+  // automations (docs/11 — runtime-defined, never code)
+  createAutomation,
+  updateAutomation,
+  deleteAutomation,
+  getAutomation,
+  listAutomations,
+  listAutomationRuns,
+  drainAutomationRuns,
+} from './automations'
+export type { AutomationRun } from './automations'
+export type {
+  AutomationAction,
+  AutomationTrigger,
+  AutomationTriggerEvent,
+  EngineAutomation,
+} from './automationShared'
+export {
   // agent conversations (chat-panel persistence)
   createConversation,
   listConversations,

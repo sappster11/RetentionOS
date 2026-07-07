@@ -13,6 +13,7 @@ import {
   EngineError,
   FIELD_TYPES,
   convertLead as engineConvertLead,
+  createAutomation as engineCreateAutomation,
   createBase as engineCreateBase,
   createField as engineCreateField,
   createRecord as engineCreateRecord,
@@ -28,11 +29,15 @@ import {
   getRecordEnriched,
   getTable,
   getTableBySlug,
+  listAutomationRuns as engineListAutomationRuns,
+  listAutomations as engineListAutomations,
   listBases as engineListBases,
   listRecordRevisions,
   listTables as engineListTables,
   listViews as engineListViews,
   queryRecords as engineQueryRecords,
+  deleteAutomation as engineDeleteAutomation,
+  updateAutomation as engineUpdateAutomation,
   updateField as engineUpdateField,
   updateRecord as engineUpdateRecord,
   updateTable as engineUpdateTable,
@@ -910,6 +915,147 @@ export const tools: EngineToolDef[] = [
     handler: async ({ record_id, limit, organization_id }, ctx) => {
       const orgId = await ctx.resolveOrg(organization_id)
       return { revisions: await listRecordRevisions(orgId, record_id, limit) }
+    },
+  }),
+
+  // --- automations (docs/11 — runtime data, never code) ----------------------
+  defineTool({
+    name: 'list_automations',
+    title: 'List automations',
+    description:
+      'All automations in the org (optionally filtered to one table): trigger, condition, ' +
+      'actions, enabled, allow_chained. Automations are runtime data — anything listed here ' +
+      'can be edited with update_automation or removed with delete_automation.',
+    inputSchema: {
+      table: z.string().min(1).optional().describe('Filter to one table (id/slug/name).'),
+      organization_id: organizationIdField,
+    },
+    handler: async ({ table, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
+      const tableId = table ? await resolveTableId(orgId, table) : undefined
+      return { automations: await engineListAutomations(orgId, { tableId }) }
+    },
+  }),
+
+  defineTool({
+    name: 'create_automation',
+    title: 'Create automation',
+    description:
+      'Create a runtime automation on a table: trigger → condition → actions. Triggers: ' +
+      '{type:"record.created"} | {type:"record.updated", fieldIds?:[...]} | ' +
+      '{type:"field.transition", fieldId, to:<choiceId>, from?:<choiceId>} (single_select ' +
+      'fields only) | {type:"schedule", cron:"daily"|"monthly:<1-28>"} (fires per record ' +
+      'matching the condition). Condition: array of {fieldId, op, value?} with ops ' +
+      'eq/neq/is_empty/is_not_empty/on_or_before_today/on_or_after_today, AND-ed, over the ' +
+      "trigger table's concrete fields. Actions run in order: {type:\"webhook\", url, " +
+      'secretHeader?:{name,value}} | {type:"create_record", tableId, values:{<fieldId>: value}} ' +
+      '| {type:"update_record", target:"trigger"|{linkFieldId}, values}. String action values ' +
+      'may embed {fld:FIELD_ID} tokens substituted from the triggering record. Everything is ' +
+      'validated against the live schema. Runs execute via the drain endpoint/cron and are ' +
+      'audited as actor "automation:<id>".',
+    inputSchema: {
+      table: z.string().min(1).describe('The trigger table (id/slug/name).'),
+      name: z.string().min(1).describe('Human-readable automation name.'),
+      trigger: z.object({ type: z.string() }).passthrough().describe('Trigger object (see description).'),
+      condition: z
+        .array(z.object({ fieldId: z.string(), op: z.string() }).passthrough())
+        .optional()
+        .describe('AND-ed filter conditions on the trigger record.'),
+      actions: z
+        .array(z.object({ type: z.string() }).passthrough())
+        .min(1)
+        .describe('Ordered action list (see description).'),
+      enabled: z.boolean().optional().describe('Default true.'),
+      allow_chained: z
+        .boolean()
+        .optional()
+        .describe('May fire from writes made by other automations (depth-capped at 3). Default false.'),
+      organization_id: organizationIdField,
+    },
+    handler: async ({ table, name, trigger, condition, actions, enabled, allow_chained, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
+      const tableId = await resolveTableId(orgId, table)
+      return {
+        automation: await engineCreateAutomation(
+          orgId,
+          {
+            tableId,
+            name,
+            trigger: trigger as never,
+            condition: (condition ?? []) as never,
+            actions: actions as never,
+            enabled,
+            allowChained: allow_chained,
+          },
+          ctx.actor,
+        ),
+      }
+    },
+  }),
+
+  defineTool({
+    name: 'update_automation',
+    title: 'Update automation',
+    description:
+      'Patch an automation: rename, enable/disable, or replace its trigger/condition/actions ' +
+      '(replaced wholesale, validated against the live schema). Disable instead of deleting ' +
+      'when the user may want it back.',
+    inputSchema: {
+      automation_id: z.string().uuid().describe('The automation id (from list_automations).'),
+      name: z.string().min(1).optional(),
+      enabled: z.boolean().optional(),
+      trigger: z.object({ type: z.string() }).passthrough().optional(),
+      condition: z.array(z.object({ fieldId: z.string(), op: z.string() }).passthrough()).optional(),
+      actions: z.array(z.object({ type: z.string() }).passthrough()).optional(),
+      allow_chained: z.boolean().optional(),
+      organization_id: organizationIdField,
+    },
+    handler: async ({ automation_id, name, enabled, trigger, condition, actions, allow_chained, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
+      return {
+        automation: await engineUpdateAutomation(orgId, automation_id, {
+          name,
+          enabled,
+          trigger: trigger as never,
+          condition: condition as never,
+          actions: actions as never,
+          allowChained: allow_chained,
+        }),
+      }
+    },
+  }),
+
+  defineTool({
+    name: 'delete_automation',
+    title: 'Delete automation',
+    description:
+      'Permanently delete an automation and its run history. Only when the user explicitly ' +
+      'asked for deletion — otherwise prefer update_automation {enabled:false}.',
+    inputSchema: {
+      automation_id: z.string().uuid(),
+      organization_id: organizationIdField,
+    },
+    handler: async ({ automation_id, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
+      await engineDeleteAutomation(orgId, automation_id)
+      return { deleted: true }
+    },
+  }),
+
+  defineTool({
+    name: 'list_automation_runs',
+    title: 'List automation runs',
+    description:
+      'The run log (newest first): status queued/running/succeeded/failed/dead, attempts, ' +
+      'last_error, and the trigger event. Use to debug why an automation did or did not fire.',
+    inputSchema: {
+      automation_id: z.string().uuid().optional().describe('Filter to one automation.'),
+      limit: z.number().int().min(1).max(200).optional(),
+      organization_id: organizationIdField,
+    },
+    handler: async ({ automation_id, limit, organization_id }, ctx) => {
+      const orgId = await ctx.resolveOrg(organization_id)
+      return { runs: await engineListAutomationRuns(orgId, { automationId: automation_id, limit }) }
     },
   }),
 ]

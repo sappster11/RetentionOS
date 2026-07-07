@@ -18,7 +18,7 @@ const shimPath = join(repoRoot, 'packages', 'db', 'local', '000_supabase_shim.sq
 
 // The subset of migrations the engine service layer touches. (0002 pgvector and 0003–0008
 // are unrelated to the meta-schema engine and are skipped to keep boot fast.)
-const ENGINE_MIGRATIONS = ['0001_foundations.sql', '0009_engine.sql', '0010_engine_links.sql', '0011_engine_bases.sql', '0012_agent_conversations.sql']
+const ENGINE_MIGRATIONS = ['0001_foundations.sql', '0009_engine.sql', '0010_engine_links.sql', '0011_engine_bases.sql', '0012_agent_conversations.sql', '0014_engine_automations.sql']
 
 let pgServer: EmbeddedPostgres | null = null
 let dataDir: string | null = null
