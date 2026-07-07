@@ -1,10 +1,13 @@
 # 11 — Native Automations (specification)
 
-**Status: BUILT (2026-07-07)** — engine (migration 0014, `packages/engine/src/automations.ts`
+**Status: BUILT (2026-07-07, UI included)** — engine (migration 0014, `packages/engine/src/automations.ts`
 + `automationShared.ts`), REST (`/api/v1/automations`, drain at `/api/automations/drain`
 with a Vercel cron), MCP tools (create/update/delete/list + run log). Automations are
-runtime data end to end — nothing hardcoded. UI placement: pending Jacob's call
-(candidates: per-table toolbar panel vs a nav-level Automations section). Written 2026-07-06.
+runtime data end to end — nothing hardcoded. UI placement decided (2026-07-07, Jacob
+delegated the call): a **per-table panel** — ⚡ Automations button in the table toolbar
+opens a right-side panel (`apps/web/app/_ui/AutomationsPanel.tsx`) with the list +
+enable toggles, a builder (trigger / conditions / actions incl. `{fld:…}` token
+insertion), and the per-automation run log. Written 2026-07-06.
 
 ## Why now
 

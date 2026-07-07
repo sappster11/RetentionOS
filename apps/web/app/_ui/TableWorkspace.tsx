@@ -10,6 +10,7 @@
 // do the work server-side.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
+  EngineAutomation,
   EngineField,
   EngineTable,
   EngineView,
@@ -22,6 +23,7 @@ import type {
   ViewType,
 } from '@retentionos/engine'
 import { api } from './apiClient'
+import { AutomationsPanel } from './AutomationsPanel'
 import { FormBuilder } from './FormBuilder'
 import { Grid } from './Grid'
 import { KanbanBoard } from './KanbanBoard'
@@ -55,6 +57,22 @@ export function TableWorkspace({
   const [search, setSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [detailRecordId, setDetailRecordId] = useState<string | null>(initialDetailRecordId)
+  const [automations, setAutomations] = useState<EngineAutomation[]>([])
+  const [automationsOpen, setAutomationsOpen] = useState(false)
+
+  // Automations are table-level metadata; load them once so the toolbar badge is live.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .listAutomations(table.id)
+      .then((list) => {
+        if (!cancelled) setAutomations(list)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [table.id])
 
   // Per-record monotonic generation counter. Each commit bumps its record's generation and
   // captures the value; a resolved PATCH (or failure-refetch) is applied only if it's still
@@ -317,6 +335,9 @@ export function TableWorkspace({
         onSearch={setSearch}
         hasActiveView={!!activeView}
         formSlug={activeView?.type === 'form' ? (activeView.config.publicSlug ?? null) : null}
+        automationCount={automations.length}
+        automationsOpen={automationsOpen}
+        onToggleAutomations={() => setAutomationsOpen((v) => !v)}
       />
 
       {error ? (
@@ -366,6 +387,16 @@ export function TableWorkspace({
           />
         )}
       </div>
+
+      {automationsOpen ? (
+        <AutomationsPanel
+          table={table}
+          fields={fields}
+          automations={automations}
+          onAutomationsChange={setAutomations}
+          onClose={() => setAutomationsOpen(false)}
+        />
+      ) : null}
 
       {detailRecord ? (
         <RecordDetailPanel

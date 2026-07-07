@@ -320,6 +320,12 @@ export const CopyIcon = ({ size = 14 }: { size?: number }) => (
   </Svg>
 )
 
+export const ZapIcon = ({ size = 15 }: { size?: number }) => (
+  <Svg size={size}>
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  </Svg>
+)
+
 export const UserIcon = ({ size = 13 }: { size?: number }) => (
   <Svg size={size}>
     <circle cx="12" cy="8" r="4" />

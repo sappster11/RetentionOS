@@ -1,7 +1,11 @@
 // Thin browser fetch wrapper over the /api/v1 REST surface. The UI talks to the API (not
 // the engine service layer directly), so the API is exercised by the app itself.
 import type {
+  AutomationAction,
+  AutomationRun,
+  AutomationTrigger,
   ConvertLeadResult,
+  EngineAutomation,
   EngineBase,
   EngineField,
   EngineRecordRevision,
@@ -11,6 +15,7 @@ import type {
   FieldOptions,
   FieldType,
   FilterCondition,
+  LinkFilterCondition,
   QueryRecordsResult,
   SortSpec,
   TableDescriptor,
@@ -157,4 +162,47 @@ export const api = {
 
   deleteView: (tableId: string, viewId: string) =>
     req<{ ok: true }>(`/api/v1/tables/${tableId}/views/${viewId}`, { method: 'DELETE' }),
+
+  listAutomations: (tableId?: string) =>
+    req<{ automations: EngineAutomation[] }>(
+      `/api/v1/automations${tableId ? `?tableId=${encodeURIComponent(tableId)}` : ''}`,
+    ).then((r) => r.automations),
+
+  createAutomation: (body: {
+    tableId: string
+    name: string
+    trigger: AutomationTrigger
+    condition?: LinkFilterCondition[]
+    actions: AutomationAction[]
+    enabled?: boolean
+    allowChained?: boolean
+  }) =>
+    req<{ automation: EngineAutomation }>('/api/v1/automations', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }).then((r) => r.automation),
+
+  updateAutomation: (
+    automationId: string,
+    patch: {
+      name?: string
+      enabled?: boolean
+      trigger?: AutomationTrigger
+      condition?: LinkFilterCondition[]
+      actions?: AutomationAction[]
+      allowChained?: boolean
+    },
+  ) =>
+    req<{ automation: EngineAutomation }>(`/api/v1/automations/${automationId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }).then((r) => r.automation),
+
+  deleteAutomation: (automationId: string) =>
+    req<{ deleted: true }>(`/api/v1/automations/${automationId}`, { method: 'DELETE' }),
+
+  listAutomationRuns: (automationId: string) =>
+    req<{ automation: EngineAutomation; runs: AutomationRun[] }>(
+      `/api/v1/automations/${automationId}?runs=1`,
+    ).then((r) => r.runs ?? []),
 }

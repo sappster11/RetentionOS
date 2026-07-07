@@ -19,6 +19,7 @@ import {
   SearchIcon,
   SidebarIcon,
   SortIcon,
+  ZapIcon,
 } from './icons'
 import { FieldIcon } from './icons'
 
@@ -61,6 +62,9 @@ export function Toolbar({
   onSearch,
   hasActiveView,
   formSlug,
+  automationCount,
+  automationsOpen,
+  onToggleAutomations,
 }: {
   viewName: string
   viewType: ViewType
@@ -78,6 +82,10 @@ export function Toolbar({
   hasActiveView: boolean
   /** The active form view's public slug — set only when viewType is 'form'. */
   formSlug?: string | null
+  /** Automations on this table (shown as a badge); the button opens the panel. */
+  automationCount: number
+  automationsOpen: boolean
+  onToggleAutomations: () => void
 }) {
   const [pop, setPop] = useState<PopId>(null)
   const [copied, setCopied] = useState(false)
@@ -166,6 +174,12 @@ export function Toolbar({
           hasActiveView={hasActiveView}
         />
       )}
+
+      {/* Automations — table-level (not view-level), so it lives outside the grid/form split. */}
+      <TbBtn onClick={onToggleAutomations} active={automationsOpen} title="Automations on this table">
+        <ZapIcon size={14} />
+        <span>{automationCount > 0 ? `Automations (${automationCount})` : 'Automations'}</span>
+      </TbBtn>
     </div>
   )
 }
