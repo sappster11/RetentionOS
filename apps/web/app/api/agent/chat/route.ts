@@ -56,11 +56,13 @@ Copywriting (the Content Studio base, when present):
 - If the client has no Brand Voice record yet, say so and offer to create one by interviewing the user.
 - ALWAYS query "Agency Context" for rows with "Always apply" checked and honor them in any copy or strategy work.
 
-Monthly strategy (when asked for a monthly review or strategy for a client):
-1) Read the client's "Brand Goals" (status of long- and short-term goals), their "Marketing Calendar" for the month, the latest "Prompt Doc Responses" cycle, and recent "Research" (all scopes: Brand / Competitor / Cultural — note the Quarter).
-2) Draft a record in "Monthly Strategies" (Status: Draft) with the strategy write-up and a distinct content strategy, linking the Goals served and Research drawn on.
-3) Derive concrete creative from it into "Copy Drafts" only when asked to proceed to production.
-Performance data lives in the external warehouse, not here — when the user pastes exports or metrics, save the useful findings into "Research" (Type: Data Pull) so future strategy work can cite them.`
+Monthly concepting pipeline (Goals → Moments → Send Briefs → recap → creative). When asked for a monthly plan/review for a client:
+1) DATA PACK first: read "Brand Goals" (status of long- and short-term goals), the latest "Prompt Doc Responses" cycle, recent "Research" (all scopes — note Quarter; Data Pulls carry pasted Klaviyo/Shopify/Hiro findings), and the "Marketing Calendar".
+2) Propose "Moments" (Status: Proposed): the month's sale events with dates + offer structure. Volume check: compare send count vs prior months and the goals; flag mismatches.
+3) Draft "Send Briefs" per email/SMS under each Moment: Overview, Goal, "What informed this" (cite the data pack — never vibes), segment plan (Primary/Secondary/Exclusions). Leave "Segments approved" UNCHECKED — the strategist approves segment plans, always.
+4) After concepts are agreed, write the client-facing recap into "Monthly Strategies" (Status: Draft): brief, why-driven, citing goals — the reader should see WHY each moment exists.
+5) Creative into "Copy Drafts" (linked to its Brief) only for briefs with Status Agreed, and only when asked to proceed.
+Performance data lives in the external warehouse (Shopify reports / Hiro), not here — when the user pastes exports or metrics, save the useful findings into "Research" (Type: Data Pull) so briefs can cite them.`
 
 /** Probe endpoint for the chat panel: is the agent configured? */
 export async function GET() {

@@ -29,11 +29,20 @@ by construction (describe_table + query_records via chat sidebar or MCP), versio
 | **Marketing Calendar** | Client, Date, Moment/Campaign, Channel, Status, Notes — reviewed in the monthly cycle |
 | **Copy Drafts** (existing) | the actual creative, linked to Brand Voice / Research / Skills, Draft → In Review → Approved → Sent |
 
-## The monthly review loop (agent-assisted)
-On each cycle: review Brand Goals status → review Marketing Calendar → review the new
-Prompt Doc Responses → draft the Monthly Strategy (linked to goals + research) → derive
-the content strategy → produce creative into Copy Drafts. The agent's system prompt
-encodes this recipe; automations (docs/11 schedule trigger) will eventually initiate it.
+## The monthly concepting pipeline (corrected by the 2026-07-06 grill)
+**Goals → Moments → Send Briefs → strategy recap → creative.** The strategy write-up is
+a client-facing "here's why" RECAP produced after concepting (read, not approved;
+current quality self-assessed "solid B" — the A cites goals and data). The unit of
+concepting is the **Send Brief** (one per email/SMS): overview, goal, "What informed
+this" (data-backed rationale), and the segment plan — which **the strategist approves,
+always** (checkbox gate). Volume (e.g. 29 emails + 15 SMS) is a rollup of briefs, and
+today's volume-setting is admittedly vibes — the agent pressure-tests it against goals.
+Data sources named: Klaviyo pulls, Shopify reports, **Hiro** (external analytics —
+and Jacob's stated ambition: **"I want to build our own Hiro"** — the reconnected
+analytics backbone/Retention section is the seed of that product).
+Deferred, designed: per-client **Segment Library** (exact Klaviyo names, agency-prefix
+conventions, live/needs-creation status) so agents propose real segments; Hiro/warehouse
+read-only connector.
 
 ## UI reshell (parallel directive)
 Left-side nav dashboard: workspaces (bases) as nav sections, tables as items beneath

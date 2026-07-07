@@ -46,23 +46,28 @@ async function ensureBaseId(orgId: string): Promise<string> {
   return base.id
 }
 
-/** Create a linked_record field only if the target table exists and a same-named field
- * doesn't already (self-heal path for reruns after seed:clienthub). */
+/** Create a linked_record field if a same-named field doesn't already exist (self-heal
+ * on reruns; works for fresh and preexisting tables alike). */
+async function ensureLinkField(orgId: string, table: EngineTable, name: string, targetTableId: string) {
+  const desc = await describeTable(orgId, table.id)
+  if (desc.fields.some((f) => f.name === name)) return
+  await createField(
+    orgId,
+    table.id,
+    { name, type: 'linked_record', options: { linkedTableId: targetTableId } },
+    SEED_ACTOR,
+  )
+  created.fields += 1
+}
+
+/** Client link (only when the Client Hub's clients table exists). */
 async function ensureClientLink(orgId: string, table: EngineTable, name: string) {
   const clients = await getTableBySlug(orgId, 'clients')
   if (!clients) {
     notes.push(`${table.name}: skipped "${name}" link — no clients table yet (run seed:clienthub, then rerun this seed).`)
     return
   }
-  const desc = await describeTable(orgId, table.id)
-  if (desc.fields.some((f) => f.name === name)) return
-  await createField(
-    orgId,
-    table.id,
-    { name, type: 'linked_record', options: { linkedTableId: clients.id } },
-    SEED_ACTOR,
-  )
-  created.fields += 1
+  await ensureLinkField(orgId, table, name, clients.id)
 }
 
 type FieldSpec = { name: string; type: string; options?: Record<string, unknown> }
@@ -346,6 +351,59 @@ async function main() {
   )
   await ensureClientLink(orgId, calendar.table, 'Client')
 
+  // Moments — the month's sale events / campaign anchors (grill 2026-07-06: the real
+  // pipeline is Goals → Moments → Send Briefs → Copy Drafts; the strategy doc is a recap).
+  const moments = await ensureTable(
+    orgId,
+    baseId,
+    {
+      name: 'Moments',
+      slug: 'moments',
+      icon: '🎪',
+      description: 'Sale events / campaign anchors: dates, offer structure, flash days. Send Briefs hang off these.',
+    },
+    [
+      { name: 'Moment', type: 'text' },
+      { name: 'Starts', type: 'date' },
+      { name: 'Ends', type: 'date' },
+      { name: 'Offer', type: 'long_text' },
+      { name: 'Status', type: 'single_select', options: sel('Proposed', 'Agreed', 'Live', 'Done') },
+      { name: 'Notes', type: 'long_text' },
+    ],
+  )
+  await ensureClientLink(orgId, moments.table, 'Client')
+
+  // Send Briefs — one per email/SMS; the unit of concepting ("it's basically a brief").
+  const briefs = await ensureTable(
+    orgId,
+    baseId,
+    {
+      name: 'Send Briefs',
+      slug: 'send-briefs',
+      icon: '📋',
+      description:
+        'One brief per send: overview, goal, What Informed This (the data-backed rationale), and the segment plan the strategist approves.',
+    },
+    [
+      { name: 'Title', type: 'text' },
+      { name: 'Send #', type: 'number' },
+      { name: 'Channel', type: 'single_select', options: sel('Email', 'SMS') },
+      { name: 'Send date', type: 'date' },
+      { name: 'Overview', type: 'long_text' },
+      { name: 'Goal', type: 'long_text' },
+      { name: 'What informed this', type: 'long_text' },
+      { name: 'Primary segments', type: 'long_text' },
+      { name: 'Secondary segments', type: 'long_text' },
+      { name: 'Exclusions', type: 'long_text' },
+      { name: 'Segments approved', type: 'checkbox' },
+      { name: 'Status', type: 'single_select', options: sel('Proposed', 'Agreed', 'Written', 'Sent') },
+    ],
+  )
+  await ensureClientLink(orgId, briefs.table, 'Client')
+  await ensureLinkField(orgId, briefs.table, 'Moment', moments.table.id)
+  // The creative hangs off its brief.
+  await ensureLinkField(orgId, drafts.table, 'Brief', briefs.table.id)
+
   const strategies = await ensureTable(
     orgId,
     baseId,
@@ -365,20 +423,9 @@ async function main() {
     ],
   )
   await ensureClientLink(orgId, strategies.table, 'Client')
-  if (strategies.fresh) {
-    for (const [name, target] of [
-      ['Goals served', goals.table.id],
-      ['Research drawn on', research.table.id],
-    ] as const) {
-      await createField(
-        orgId,
-        strategies.table.id,
-        { name, type: 'linked_record', options: { linkedTableId: target } },
-        SEED_ACTOR,
-      )
-      created.fields += 1
-    }
-  }
+  await ensureLinkField(orgId, strategies.table, 'Goals served', goals.table.id)
+  await ensureLinkField(orgId, strategies.table, 'Research drawn on', research.table.id)
+  await ensureLinkField(orgId, strategies.table, 'Moments covered', moments.table.id)
 
   // --- Starter skills (fresh table, or an existing one left empty by a previous
   // partial run — record-level self-heal) ----------------------------------------
