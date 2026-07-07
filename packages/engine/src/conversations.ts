@@ -182,7 +182,9 @@ export async function appendMessages(
     await client.query('commit')
     return inserted
   } catch (err) {
-    if (!(err instanceof EngineError)) await client.query('rollback')
+    // Always roll back — a second rollback after the not_found path is a harmless no-op,
+    // and this guarantees no connection ever returns to the pool with an open tx.
+    await client.query('rollback').catch(() => {})
     throw err
   } finally {
     client.release()
