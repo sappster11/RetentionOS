@@ -45,6 +45,23 @@ export {
   // revisions
   listRecordRevisions,
 } from './engine'
+export {
+  // agent conversations (chat-panel persistence)
+  createConversation,
+  listConversations,
+  getConversation,
+  appendMessages,
+  deleteConversation,
+  CONVERSATION_TITLE_MAX,
+} from './conversations'
+export type {
+  AgentConversation,
+  AgentMessage,
+  AgentMessageInput,
+  AgentMessagePart,
+  AgentMessageRole,
+  ConversationWithMessages,
+} from './conversations'
 export type {
   FormField,
   FormDescriptor,
