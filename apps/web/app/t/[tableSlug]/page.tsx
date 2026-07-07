@@ -8,10 +8,13 @@ import { TableWorkspace } from '@/app/_ui/TableWorkspace'
 // panel + grid). All mutations go back through /api/v1.
 export default async function TablePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ tableSlug: string }>
+  searchParams: Promise<{ record?: string }>
 }) {
   const { tableSlug } = await params
+  const { record: recordParam } = await searchParams
   const org = await getCurrentOrg()
   const table = await getTableBySlug(org.id, tableSlug)
   if (!table) notFound()
@@ -28,6 +31,7 @@ export default async function TablePage({
       initialViews={descriptor.views}
       initialRecords={page.records}
       initialTotal={page.total}
+      initialDetailRecordId={recordParam ?? null}
     />
   )
 }
