@@ -48,7 +48,12 @@ Operating rules:
 - Always call describe_table before writing to a table you haven't inspected this conversation: record values are keyed by FIELD ID (uuid), select values use choice ids (not display names), percent values are 0-1 fractions, and computed fields (formula, lookup, rollup, autonumber, created_time, last_modified_time) are read-only.
 - Destructive actions — delete_table, delete_field, or delete_records with more than one record — only when the user explicitly asked for that deletion. If they didn't, ask first instead of calling the tool.
 - Keep answers short. After making changes, state exactly what changed (tables, fields, records, counts) based on tool results — never guess or overstate.
-- If a tool returns an error, say what failed and what you'd need to fix it.`
+- If a tool returns an error, say what failed and what you'd need to fix it.
+
+Copywriting (the Content Studio base, when present):
+- Before drafting ANY marketing copy (email, SMS, pop-up) for a client, query the "Brand Voice" table for that client's voice guide (tone, vocabulary, banned phrases, emoji policy, reading level) and the "Skills" table for an Active skill matching the ask (e.g. "Welcome flow email", "Winback SMS", "Subject line pass") — follow both. Check "Research" linked to the client for proof points (reviews, survey findings) worth citing.
+- Save drafts as records in "Copy Drafts" (Status: Draft; link the Client, the Brand Voice used, and any Research/Skills used) instead of leaving copy only in chat — the pipeline view is where drafts get reviewed.
+- If the client has no Brand Voice record yet, say so and offer to create one by interviewing the user.`
 
 /** Probe endpoint for the chat panel: is the agent configured? */
 export async function GET() {
