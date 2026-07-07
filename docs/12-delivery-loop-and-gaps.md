@@ -30,6 +30,13 @@ forms, in-app agent (OpenRouter/Anthropic), generic MCP, filtered rollups, bases
 Jacob's verdict: this layer alone ≈ what Airtable already offered him. Correct — it's
 the *foundation*, not the differentiation.
 
+**Priority correction (Jacob's original vision message, resurfaced 2026-07-06):**
+*"I think honestly the copywriting and marketing part of it is honestly the most
+important. It needs to host the brands, it needs to be capable of pulling in research,
+it needs to be able to have skills built into it, it needs to be agentic."* — so the
+copy/marketing engine (item 2 below, as **Content Studio**) is co-first with analytics
+and starts immediately; the two interlock ("data-backed emails" needs the data layer).
+
 **The differentiation backlog, priority-ordered:**
 
 1. **Analytics backbone reconnection** (email/SMS/lifecycle first). Parked pre-pivot

@@ -1,9 +1,14 @@
 // POST /api/agent/chat — the in-app Roam workspace agent (SSE streaming).
 //
-// Body: { messages: [{ role: 'user' | 'assistant', content: string }, ...] } — the
-// CLIENT holds the session; nothing is persisted server-side in v1 (conversation
-// persistence is a noted fast-follow). The response is an SSE stream of
-// AgentStreamEvent JSON: text deltas, tool action chips ({tool, summary}), error, done.
+// Body: { messages: [{ role: 'user' | 'assistant', content: string }, ...],
+// conversationId?: uuid }. The CLIENT still holds the live session and re-sends it as
+// turns; the server ALSO persists each exchange (migration 0012 via the engine's
+// conversation store): when conversationId is absent a conversation is created, its id
+// is emitted as the FIRST SSE event ({type:'conversation', conversationId}), and after
+// the loop completes the user turn + final assistant message (text parts AND tool
+// action chips, the panel's UI shape) are appended in one batch. The response is an SSE
+// stream of AgentStreamEvent JSON: conversation id, text deltas, tool action chips
+// ({tool, summary}), error, done.
 //
 // Provider selection (see lib/agent/provider.ts): ANTHROPIC_API_KEY → Anthropic SDK
 // (first-class); else OPENROUTER_API_KEY → OpenRouter adapter (OpenAI-compatible,
@@ -17,6 +22,12 @@
 // {type:'agent', id:'roam-chat'} audit actor and the same org resolution the REST API
 // uses (getCurrentOrg via resolveOrgId), passed as the per-call org pin.
 import Anthropic from '@anthropic-ai/sdk'
+import {
+  appendMessages,
+  createConversation,
+  getConversation,
+  type AgentMessagePart,
+} from '@retentionos/engine'
 import { tools } from '@retentionos/mcp-engine/tools'
 import { errorResponse, json, readJson, resolveOrgId } from '@/lib/api'
 import {
@@ -64,9 +75,19 @@ export async function POST(request: Request) {
   if (!config) return json({ disabled: true })
 
   let messages: ChatTurn[] | null
+  let requestedConversationId: string | null = null
   try {
     const body = await readJson(request)
     messages = parseMessages(body.messages)
+    if (body.conversationId !== undefined) {
+      if (typeof body.conversationId !== 'string' || body.conversationId.trim() === '') {
+        return json(
+          { error: 'conversationId must be a non-empty string when provided.', code: 'bad_input' },
+          400,
+        )
+      }
+      requestedConversationId = body.conversationId
+    }
   } catch (err) {
     return errorResponse(err)
   }
@@ -81,9 +102,18 @@ export async function POST(request: Request) {
     )
   }
 
+  // Resolve the conversation BEFORE opening the stream: a bogus conversationId is a clean
+  // JSON 404 (via errorResponse), not a mid-stream error frame.
   let orgId: string
+  let conversationId: string
   try {
     orgId = await resolveOrgId()
+    if (requestedConversationId) {
+      await getConversation(orgId, requestedConversationId) // ownership check (throws not_found)
+      conversationId = requestedConversationId
+    } else {
+      conversationId = (await createConversation(orgId)).id
+    }
   } catch (err) {
     return errorResponse(err)
   }
@@ -97,7 +127,26 @@ export async function POST(request: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      // The assistant message being streamed, accumulated in the panel's UI shape
+      // (text parts coalesced, tool chips in order) so persistence stores exactly
+      // what the client rendered.
+      const assistantParts: AgentMessagePart[] = []
+      const collect = (event: AgentStreamEvent) => {
+        if (event.type === 'text') {
+          const tail = assistantParts[assistantParts.length - 1]
+          if (tail && tail.kind === 'text') tail.text += event.text
+          else assistantParts.push({ kind: 'text', text: event.text })
+        } else if (event.type === 'tool') {
+          assistantParts.push({
+            kind: 'tool',
+            tool: event.tool,
+            summary: event.summary,
+            ...(event.isError ? { isError: true } : {}),
+          })
+        }
+      }
       const emit = (event: AgentStreamEvent) => {
+        collect(event)
         // The client may have disconnected mid-stream (controller closed) —
         // never let a final emit turn a clean stop into a stream error.
         try {
@@ -106,6 +155,9 @@ export async function POST(request: Request) {
           // stream already closed — nothing left to notify
         }
       }
+      // First frame: which conversation this exchange belongs to (new or resumed) —
+      // the panel threads it through subsequent sends.
+      emit({ type: 'conversation', conversationId })
       try {
         await runAgentLoop({
           client,
@@ -126,6 +178,24 @@ export async function POST(request: Request) {
         })
         emit({ type: 'done' })
       } finally {
+        // Persist the exchange: the user turn plus the assistant message as streamed
+        // (including partial output on abort/error — the thread never silently loses a
+        // turn). Persistence failures are logged, not surfaced: the stream is already
+        // complete from the client's point of view.
+        try {
+          const lastTurn = messages![messages!.length - 1]!
+          const toPersist = [
+            ...(lastTurn.role === 'user' && typeof lastTurn.content === 'string'
+              ? [{ role: 'user' as const, content: [{ kind: 'text', text: lastTurn.content }] as AgentMessagePart[] }]
+              : []),
+            ...(assistantParts.length > 0
+              ? [{ role: 'assistant' as const, content: assistantParts }]
+              : []),
+          ]
+          if (toPersist.length > 0) await appendMessages(orgId, conversationId, toPersist)
+        } catch (persistErr) {
+          console.error('[agent-chat] failed to persist conversation turn:', persistErr)
+        }
         controller.close()
       }
     },

@@ -47,6 +47,23 @@ export {
 } from './engine'
 export { convertLead } from './convert'
 export type { ConvertLeadResult } from './convert'
+export {
+  // agent conversations (chat-panel persistence)
+  createConversation,
+  listConversations,
+  getConversation,
+  appendMessages,
+  deleteConversation,
+  CONVERSATION_TITLE_MAX,
+} from './conversations'
+export type {
+  AgentConversation,
+  AgentMessage,
+  AgentMessageInput,
+  AgentMessagePart,
+  AgentMessageRole,
+  ConversationWithMessages,
+} from './conversations'
 export type {
   FormField,
   FormDescriptor,
