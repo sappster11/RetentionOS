@@ -6,12 +6,15 @@
 //   - matchesLinkFilters: the in-memory evaluator applied to already-batch-fetched linked
 //     rows during enrichment (links.ts), so the no-N+1 property is untouched.
 //
-// The operator vocabulary (LINK_FILTER_OPS) is the eq/neq/is_empty/is_not_empty subset of
-// the view-filter grammar in queryRecords, with matching semantics:
+// The operator vocabulary (LINK_FILTER_OPS) is a subset of the view-filter grammar in
+// queryRecords, with matching semantics:
 //   - is_empty      ≙ `path is null or path = ''`
 //   - is_not_empty  ≙ `path is not null and path <> ''`
 //   - eq            ≙ `lhs = rhs` (a null/absent stored value never matches)
 //   - neq           ≙ `lhs is distinct from rhs` (empty values DO match)
+//   - on_or_before_today / on_or_after_today ≙ the SQL grammar's relative-date compare
+//     (date fields: `::date <=|>= current_date`; datetime fields: `::timestamptz <=|>= now()`),
+//     evaluated here against the read moment. Valueless; empty/unparseable values never match.
 // Numeric fields (number/currency/percent) compare numerically — the SQL grammar casts
 // both sides to ::numeric — everything else compares as text.
 
@@ -62,6 +65,39 @@ function isEmptyValue(v: unknown): boolean {
   return v === null || v === undefined || v === ''
 }
 
+/** The app server's local calendar date as YYYY-MM-DD (the in-memory twin of SQL current_date). */
+function localTodayISO(now: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`
+}
+
+/**
+ * Evaluate a relative-date op against one stored value, mirroring the SQL grammar exactly:
+ * date fields compare by calendar date (stored YYYY-MM-DD vs today's date), datetime fields
+ * by instant (stored ISO vs now). Empty or unparseable values never match — the SQL
+ * comparison against null yields null, which excludes the row.
+ */
+export function matchesRelativeDate(
+  stored: unknown,
+  op: 'on_or_before_today' | 'on_or_after_today',
+  fieldType: string | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (isEmptyValue(stored)) return false
+  if (fieldType === 'date') {
+    const s = String(stored)
+    const today = localTodayISO(now)
+    return op === 'on_or_before_today' ? s <= today : s >= today
+  }
+  if (fieldType === 'datetime') {
+    const t = Date.parse(String(stored))
+    if (Number.isNaN(t)) return false
+    return op === 'on_or_before_today' ? t <= now.getTime() : t >= now.getTime()
+  }
+  // Validation restricts these ops to date/datetime; anything else (drift) never matches.
+  return false
+}
+
 /**
  * Equality matching the view grammar: numeric fields compare as numbers (SQL casts both
  * sides to ::numeric), everything else as text (jsonb `->>` semantics — booleans become
@@ -104,6 +140,12 @@ export function matchesLinkFilters(
         // neq: is-distinct-from — a null/absent stored value always matches a real rhs.
         const equal = v === null || v === undefined ? false : valuesEqual(v, c.value, numeric)
         if (c.op === 'eq' ? !equal : equal) return false
+        break
+      }
+      case 'on_or_before_today':
+      case 'on_or_after_today': {
+        const f = fieldsById.get(c.fieldId)
+        if (!matchesRelativeDate(v, c.op, f?.type)) return false
         break
       }
       default: {

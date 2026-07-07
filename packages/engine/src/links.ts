@@ -1,7 +1,9 @@
 // Relations & computed fields — the read-side of Phase B. Given a set of records and the
 // table's field definitions, this module computes the `display` sibling map (linked-record
-// labels, lookups, rollups) using BATCHED queries: at most one links query per linked_record
-// field and one target-record fetch per linked table, never per-record (no N+1).
+// labels, lookups, rollups) using BATCHED queries: at most one links query per hop (all
+// link fields of that hop together) and one target-record fetch per linked table, never
+// per-record (no N+1). Depth-2 chained lookups (a lookup/rollup targeting a LOOKUP on the
+// directly-linked table) batch their second hop the same way.
 //
 // The write-side (syncing engine_record_links inside a mutation transaction) lives here too
 // so engine.ts's create/updateRecord stay readable.
@@ -138,21 +140,65 @@ export async function enrichRecords(
   interface TargetRow { id: string; table_id: string; values: Record<string, unknown> }
   const targetRecById = new Map<string, TargetRow>()
   const fieldsByTable = new Map<string, EngineField[]>()
+  async function fetchTargetTable(tableId: string, ids: string[]): Promise<void> {
+    const missing = ids.filter((id) => !targetRecById.has(id))
+    if (missing.length > 0) {
+      const rows = await query<TargetRow>(
+        `select id, table_id, values from public.engine_records
+         where organization_id = $1 and table_id = $2 and id = any($3::uuid[])`,
+        [orgId, tableId, missing],
+      )
+      for (const row of rows) targetRecById.set(row.id, row)
+    }
+    if (!fieldsByTable.has(tableId)) {
+      const tfields = await query<EngineField>(
+        `select id, table_id, name, type, options, position, required,
+                created_by_type, created_by_id, created_at, updated_at
+         from public.engine_fields where table_id = $1 order by position asc, created_at asc`,
+        [tableId],
+      )
+      fieldsByTable.set(tableId, tfields)
+    }
+  }
   for (const [tableId, idSet] of targetsByTable) {
-    const ids = [...idSet]
-    const rows = await query<TargetRow>(
-      `select id, table_id, values from public.engine_records
-       where organization_id = $1 and table_id = $2 and id = any($3::uuid[])`,
-      [orgId, tableId, ids],
-    )
-    for (const row of rows) targetRecById.set(row.id, row)
-    const tfields = await query<EngineField>(
-      `select id, table_id, name, type, options, position, required,
-              created_by_type, created_by_id, created_at, updated_at
-       from public.engine_fields where table_id = $1 order by position asc, created_at asc`,
-      [tableId],
-    )
-    fieldsByTable.set(tableId, tfields)
+    await fetchTargetTable(tableId, [...idSet])
+  }
+
+  // 3b. SECOND hop, for depth-2 chained lookups: a lookup/rollup whose targetFieldId is
+  //     itself a LOOKUP on the hop-1 table needs that lookup's link edges and target rows
+  //     too. Batched exactly like hop 1 — ONE links query for all hop-2 link fields, one
+  //     row/field fetch per hop-2 table not already loaded. Never a per-record query.
+  const hop2LinkFields = new Map<string, EngineField>()
+  for (const f of fields) {
+    if (f.type !== 'lookup' && f.type !== 'rollup') continue
+    const linkField = f.options.recordLinkFieldId ? byId.get(f.options.recordLinkFieldId) : undefined
+    if (!linkField || linkField.type !== 'linked_record') continue
+    const hop1Fields = fieldsByTable.get(linkField.options.linkedTableId ?? '')
+    const chained = hop1Fields?.find((tf) => tf.id === f.options.targetFieldId)
+    if (!chained || chained.type !== 'lookup') continue
+    const hop2Link = chained.options.recordLinkFieldId
+      ? hop1Fields?.find((x) => x.id === chained.options.recordLinkFieldId)
+      : undefined
+    if (!hop2Link || hop2Link.type !== 'linked_record' || !hop2Link.options.linkedTableId) continue
+    hop2LinkFields.set(hop2Link.id, hop2Link)
+  }
+  if (hop2LinkFields.size > 0) {
+    const hop1RowIds = [...targetRecById.keys()]
+    const hop2Links = await loadLinksForFields([...hop2LinkFields.values()], hop1RowIds)
+    const hop2TargetsByTable = new Map<string, Set<string>>()
+    for (const [hop2FieldId, lf] of hop2LinkFields) {
+      const set = hop2TargetsByTable.get(lf.options.linkedTableId!) ?? new Set<string>()
+      for (const rid of hop1RowIds) {
+        for (const id of hop2Links.get(`${hop2FieldId}:${rid}`) ?? []) set.add(id)
+      }
+      hop2TargetsByTable.set(lf.options.linkedTableId!, set)
+    }
+    // Merge the hop-2 edges into the shared map (keys are `${fieldId}:${recordId}`, so
+    // hop-1 and hop-2 entries coexist; an overlap recomputes the same edges identically).
+    for (const [k, v] of hop2Links) linksByKey.set(k, v)
+    for (const [tableId, idSet] of hop2TargetsByTable) {
+      await fetchTargetTable(tableId, [...idSet])
+    }
   }
 
   // 4. Build each record's display map.
@@ -173,11 +219,11 @@ export async function enrichRecords(
       } else if (f.type === 'lookup') {
         const linkField = f.options.recordLinkFieldId ? byId.get(f.options.recordLinkFieldId) : undefined
         const targetFields = fieldsByTable.get(linkField?.options.linkedTableId ?? '')
-        display[f.id] = computeLookup(f, rec, linkField, targetFields, linksByKey, targetRecById)
+        display[f.id] = computeLookup(f, rec, linkField, targetFields, linksByKey, targetRecById, fieldsByTable)
       } else if (f.type === 'rollup') {
         const linkField = f.options.recordLinkFieldId ? byId.get(f.options.recordLinkFieldId) : undefined
         const targetFields = fieldsByTable.get(linkField?.options.linkedTableId ?? '')
-        display[f.id] = computeRollup(f, rec, linkField, targetFields, linksByKey, targetRecById)
+        display[f.id] = computeRollup(f, rec, linkField, targetFields, linksByKey, targetRecById, fieldsByTable)
       } else if (f.type === 'formula') {
         display[f.id] = computeFormula(f, rec, byId)
       } else if (f.type === 'attachment') {
@@ -249,7 +295,7 @@ function roundToPrecision(v: number, field: EngineField): number {
  */
 function collectLinkedRows(
   linkFieldId: string | undefined,
-  rec: EngineRecord,
+  rec: { id: string },
   linksByKey: Map<string, string[]>,
   targetRecById: Map<string, TargetRowLike>,
   filters: LinkFilterCondition[] | undefined,
@@ -267,6 +313,60 @@ function collectLinkedRows(
   return rows.filter((r) => matchesLinkFilters(r.values, filters, fieldsById))
 }
 
+/**
+ * Resolve a chained (depth-2) target: the outer lookup/rollup's targetFieldId points at a
+ * LOOKUP on the hop-1 table. Returns that chained lookup + its own link field + the hop-2
+ * table's fields + the FINAL concrete field, or null when the target isn't a chain (or any
+ * hop is broken/deeper-than-2 — callers then compute as empty, mirroring targetFieldMissing).
+ */
+function resolveChainedTarget(
+  targetFieldId: string | undefined,
+  targetFields: EngineField[] | undefined,
+  fieldsByTable: Map<string, EngineField[]>,
+): {
+  chained: EngineField
+  hop2Link: EngineField | undefined
+  hop2Fields: EngineField[] | undefined
+  finalField: EngineField | undefined
+} | null {
+  const chained = targetFields?.find((tf) => tf.id === targetFieldId)
+  if (!chained || chained.type !== 'lookup') return null
+  const hop2Link = chained.options.recordLinkFieldId
+    ? targetFields?.find((x) => x.id === chained.options.recordLinkFieldId)
+    : undefined
+  const hop2Fields = fieldsByTable.get(hop2Link?.options.linkedTableId ?? '')
+  const finalField = hop2Fields?.find((x) => x.id === chained.options.targetFieldId)
+  return { chained, hop2Link, hop2Fields, finalField }
+}
+
+/**
+ * Compute a chained lookup's values for ONE hop-1 row, using the already-batch-fetched
+ * hop-2 edges/rows (no queries here). Same "compute as empty, never stale" rules at the
+ * second hop: a deleted link/target/filter field — or a final field that is itself
+ * computed (a chain deeper than 2, which validation forbids but data drift could leave
+ * behind) — yields [].
+ */
+function computeChainedValues(
+  chain: NonNullable<ReturnType<typeof resolveChainedTarget>>,
+  hop1Row: TargetRowLike,
+  linksByKey: Map<string, string[]>,
+  targetRecById: Map<string, TargetRowLike>,
+): unknown[] {
+  const { chained, hop2Link, hop2Fields, finalField } = chain
+  if (targetFieldMissing(hop2Link, chained.options.targetFieldId, hop2Fields)) return []
+  if (filterFieldMissing(chained.options.filters, hop2Fields)) return []
+  if (!finalField || isComputedType(finalField.type)) return [] // never past depth 2
+  const rows = collectLinkedRows(
+    chained.options.recordLinkFieldId,
+    hop1Row,
+    linksByKey,
+    targetRecById,
+    chained.options.filters,
+    hop2Fields,
+  )
+  return rows.map((r) => r.values[finalField.id] ?? null)
+}
+
 function computeLookup(
   field: EngineField,
   rec: EngineRecord,
@@ -274,6 +374,7 @@ function computeLookup(
   targetFields: EngineField[] | undefined,
   linksByKey: Map<string, string[]>,
   targetRecById: Map<string, TargetRowLike>,
+  fieldsByTable: Map<string, EngineField[]>,
 ): unknown[] {
   // If the link, target, or any filter field was deleted, the lookup reads as empty
   // rather than stale.
@@ -288,6 +389,16 @@ function computeLookup(
     field.options.filters,
     targetFields,
   )
+  // Depth-2: a lookup target that is itself a lookup pulls THROUGH it — the hop-2 values,
+  // flattened across the (filtered) hop-1 rows, in link order at both hops.
+  const chain = resolveChainedTarget(targetFieldId, targetFields, fieldsByTable)
+  if (chain) {
+    return rows.flatMap((r) => computeChainedValues(chain, r, linksByKey, targetRecById))
+  }
+  // A non-lookup computed target (rollup/formula — validation forbids it, drift could
+  // leave it) reads as empty, never stale, same as a deleted target.
+  const targetField = targetFields?.find((tf) => tf.id === targetFieldId)
+  if (targetField && isComputedType(targetField.type)) return []
   return rows.map((r) => (targetFieldId ? r.values[targetFieldId] ?? null : null))
 }
 
@@ -298,6 +409,7 @@ function computeRollup(
   targetFields: EngineField[] | undefined,
   linksByKey: Map<string, string[]>,
   targetRecById: Map<string, TargetRowLike>,
+  fieldsByTable: Map<string, EngineField[]>,
 ): number | string | null {
   const aggregate = (field.options.aggregate ?? 'count') as RollupAggregate
   const linkFieldId = field.options.recordLinkFieldId
@@ -316,13 +428,19 @@ function computeRollup(
   if (aggregate === 'count') return rows.length
 
   const targetFieldId = field.options.targetFieldId
-  const raw = rows.map((r) => (targetFieldId ? r.values[targetFieldId] ?? null : null))
+  // Depth-2: aggregating THROUGH a chained lookup collects the hop-2 values (flattened
+  // across the filtered hop-1 rows); typing (date min/max, numeric precision) then follows
+  // the FINAL concrete field, not the intermediate lookup.
+  const chain = resolveChainedTarget(targetFieldId, targetFields, fieldsByTable)
+  const raw = chain
+    ? rows.flatMap((r) => computeChainedValues(chain, r, linksByKey, targetRecById))
+    : rows.map((r) => (targetFieldId ? r.values[targetFieldId] ?? null : null))
   const present = raw.filter((v) => v !== null && v !== undefined && v !== '')
 
   if (aggregate === 'concat') {
     return present.map((v) => String(v)).join(', ')
   }
-  const targetField = targetFields?.find((tf) => tf.id === targetFieldId)
+  const targetField = chain ? chain.finalField : targetFields?.find((tf) => tf.id === targetFieldId)
   // Date/datetime min/max: ISO strings order lexicographically ≡ chronologically, so compare
   // as strings and return the winning ISO string untouched — never through the numeric path.
   if (

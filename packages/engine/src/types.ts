@@ -105,7 +105,12 @@ export interface FieldOptions {
   // --- lookup / rollup ---
   /** The linked_record field (on THIS table) whose links the lookup/rollup walks. */
   recordLinkFieldId?: string
-  /** The concrete field on the linked table to pull / aggregate (optional for count). */
+  /**
+   * The field on the linked table to pull / aggregate (optional for count). Either a
+   * CONCRETE field, or — depth-2 chaining — a LOOKUP on the linked table whose own
+   * targetFieldId resolves to a concrete field (exactly one extra hop; never deeper,
+   * never a rollup/formula target).
+   */
   targetFieldId?: string
   /** Rollup only: how to aggregate the collected target values. */
   aggregate?: RollupAggregate
@@ -138,8 +143,26 @@ export const VIEW_FILTER_OPS = [
   'lte',
   'is_empty',
   'is_not_empty',
+  'on_or_before_today',
+  'on_or_after_today',
 ] as const
 export type ViewFilterOp = (typeof VIEW_FILTER_OPS)[number]
+
+/**
+ * Relative-date operators: valueless, date/datetime fields ONLY, evaluated at READ time
+ * against the query moment (never frozen at config time). Date-only fields compare by
+ * calendar date (SQL current_date / the app server's local date); datetime fields compare
+ * by instant (SQL now() / new Date()).
+ */
+export const RELATIVE_DATE_FILTER_OPS = [
+  'on_or_before_today',
+  'on_or_after_today',
+] as const satisfies readonly ViewFilterOp[]
+export type RelativeDateFilterOp = (typeof RELATIVE_DATE_FILTER_OPS)[number]
+
+export function isRelativeDateFilterOp(op: string): op is RelativeDateFilterOp {
+  return (RELATIVE_DATE_FILTER_OPS as readonly string[]).includes(op)
+}
 
 export interface FilterCondition {
   fieldId: string
@@ -150,9 +173,17 @@ export interface FilterCondition {
 /**
  * The subset of the view-filter grammar available in lookup/rollup `filters` (v1).
  * Same operator names, same semantics: `neq` keeps its is-distinct-from behavior,
- * so empty values MATCH a neq condition.
+ * so empty values MATCH a neq condition. The relative-date ops are valueless and
+ * restricted to date/datetime filter fields, exactly like the view grammar.
  */
-export const LINK_FILTER_OPS = ['eq', 'neq', 'is_empty', 'is_not_empty'] as const satisfies readonly ViewFilterOp[]
+export const LINK_FILTER_OPS = [
+  'eq',
+  'neq',
+  'is_empty',
+  'is_not_empty',
+  'on_or_before_today',
+  'on_or_after_today',
+] as const satisfies readonly ViewFilterOp[]
 export type LinkFilterOp = (typeof LINK_FILTER_OPS)[number]
 
 /**
